@@ -1,0 +1,112 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", "Palatino Linotype", serif;
+
+  --color-bg: #ffffff;
+  --color-bg-elevated: #ffffff;
+  --color-surface: #ffffff;
+  --color-fg: #1a1914;
+  --color-muted: #6b6458;
+  --color-subtle: #8a8376;
+  --color-border: #e8e4dc;
+  --color-primary: #3d4a32;
+  --color-primary-fg: #f4efe4;
+  --color-accent: #3d4a32;
+  --color-ink: #1a1914;
+  --color-olive: #3d4a32;
+  --color-olive-deep: #2a3324;
+  --color-wheat: #c4b48a;
+  --color-brand-gold: #f5bb28;
+  --color-brand-leaf: #33a537;
+  --color-clay: #8c5a3c;
+  --color-sage: #5c6b4a;
+  --color-rose: #8d4338;
+  --color-paper: #ffffff;
+
+  --color-background: #ffffff;
+  --color-foreground: #1a1914;
+  --color-card: #ffffff;
+  --color-card-foreground: #1a1914;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #1a1914;
+  --color-primary-foreground: #f4efe4;
+  --color-secondary: #f3f1eb;
+  --color-secondary-foreground: #1a1914;
+  --color-muted-foreground: #6b6458;
+  --color-destructive: #8d4338;
+  --color-destructive-foreground: #faf6ef;
+  --color-input: #e2d8c8;
+  --color-ring: #3d4a32;
+  --color-sidebar: #2a3324;
+  --color-sidebar-foreground: #f4efe4;
+  --color-sidebar-muted: #c5cbb8;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius: 12px;
+
+  --shadow-border:
+    0px 0px 0px 1px rgba(26, 25, 20, 0.06),
+    0px 1px 2px -1px rgba(26, 25, 20, 0.06),
+    0px 2px 4px 0px rgba(26, 25, 20, 0.04);
+
+  --ease-smooth-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  body {
+    min-height: 100dvh;
+    font-family: var(--font-sans);
+    background: var(--color-bg);
+    color: var(--color-fg);
+  }
+
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  h1, h2, h3 {
+    text-wrap: balance;
+    font-family: var(--font-display);
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-olive) 22%, white);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@utility tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@utility tap {
+  min-height: 44px;
+  min-width: 44px;
+}

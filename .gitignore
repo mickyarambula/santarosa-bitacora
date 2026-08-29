@@ -1,0 +1,37 @@
+# deps & build
+node_modules/
+dist/
+.output/
+.vinxi/
+.tanstack/
+.vercel/
+.pglite/
+.cache/
+coverage/
+playwright-report/
+test-results/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# grok sandbox (platform, not the app)
+.grok/skills/
+.grok/tmp/
+.grok/status
+.project_id
+.node_modules.lock
+
+# qa captures (local only)
+screenshots/*.png
+screenshots/*.json
+attachments/Captura*
+
+# os
+.DS_Store
+Thumbs.db
+*.log
