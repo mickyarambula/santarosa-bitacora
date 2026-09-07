@@ -41,5 +41,22 @@ directo esperado y ruta de comprobante privado. El entorno incluye
 5. Publicar el código integrado, comprobar los accesos y comunicar el enlace
    definitivo. Mantener el origen y respaldo para recuperación.
 
+### Pausa y cambio del enlace viejo
+
+Solo en la compilación del origen Grok, `VITE_MIGRATION_SOURCE_MODE=paused`
+detiene todas las solicitudes dinámicas, incluidas las enviadas por pestañas
+abiertas, antes de ejecutar el CRM. Mantiene únicamente el POST de
+`/api/migration-backup`, que exige origen correcto, sesión y gerencia activa.
+Iniciar sesión de gerencia antes de publicar la pausa. La página de pausa
+contiene el formulario para descargar el respaldo final.
+
+Tras confirmar el destino, `VITE_MIGRATION_SOURCE_MODE=moved` redirige las
+navegaciones al dominio definitivo; rechaza escrituras viejas sin reenviarlas.
+Para revertir una pausa antes del cambio, quitar esta variable y republicar el
+origen. El modo `standalone` ignora esta variable, incluso si se hereda.
+
+La pausa está probada tanto en pruebas unitarias como en la salida compilada.
+No se activa al integrar el código: requiere configurar y publicar el origen.
+
 Una compilación correcta o un push a GitHub no certifican la publicación ni
 el traslado de datos. La base principal y la de pruebas deben estar separadas.

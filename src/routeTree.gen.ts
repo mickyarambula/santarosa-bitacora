@@ -22,6 +22,7 @@ import { Route as AppGruposRouteImport } from './routes/_app/grupos'
 import { Route as AppGuiaRouteImport } from './routes/_app/guia'
 import { Route as AppPapeleriaRouteImport } from './routes/_app/papeleria'
 import { Route as AppRecordatoriosRouteImport } from './routes/_app/recordatorios'
+import { Route as ApiMigrationBackupRouteImport } from './routes/api/migration-backup'
 import { Route as AppProductoresIndexRouteImport } from './routes/_app/productores/index'
 import { Route as AppProductoresIdRouteImport } from './routes/_app/productores/$id'
 import { Route as AppProductoresNuevoRouteImport } from './routes/_app/productores/nuevo'
@@ -91,6 +92,11 @@ const AppRecordatoriosRoute = AppRecordatoriosRouteImport.update({
   path: '/recordatorios',
   getParentRoute: () => AppRoute,
 } as any)
+const ApiMigrationBackupRoute = ApiMigrationBackupRouteImport.update({
+  id: '/api/migration-backup',
+  path: '/api/migration-backup',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AppProductoresIndexRoute = AppProductoresIndexRouteImport.update({
   id: '/productores/',
   path: '/productores/',
@@ -125,6 +131,7 @@ export interface FileRoutesByFullPath {
   '/guia': typeof AppGuiaRoute
   '/papeleria': typeof AppPapeleriaRoute
   '/recordatorios': typeof AppRecordatoriosRoute
+  '/api/migration-backup': typeof ApiMigrationBackupRoute
   '/productores/$id': typeof AppProductoresIdRoute
   '/productores/nuevo': typeof AppProductoresNuevoRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -142,6 +149,7 @@ export interface FileRoutesByTo {
   '/guia': typeof AppGuiaRoute
   '/papeleria': typeof AppPapeleriaRoute
   '/recordatorios': typeof AppRecordatoriosRoute
+  '/api/migration-backup': typeof ApiMigrationBackupRoute
   '/': typeof AppIndexRoute
   '/productores/$id': typeof AppProductoresIdRoute
   '/productores/nuevo': typeof AppProductoresNuevoRoute
@@ -162,6 +170,7 @@ export interface FileRoutesById {
   '/_app/guia': typeof AppGuiaRoute
   '/_app/papeleria': typeof AppPapeleriaRoute
   '/_app/recordatorios': typeof AppRecordatoriosRoute
+  '/api/migration-backup': typeof ApiMigrationBackupRoute
   '/_app/': typeof AppIndexRoute
   '/_app/productores/$id': typeof AppProductoresIdRoute
   '/_app/productores/nuevo': typeof AppProductoresNuevoRoute
@@ -183,6 +192,7 @@ export interface FileRouteTypes {
     | '/guia'
     | '/papeleria'
     | '/recordatorios'
+    | '/api/migration-backup'
     | '/productores/$id'
     | '/productores/nuevo'
     | '/api/auth/$'
@@ -200,6 +210,7 @@ export interface FileRouteTypes {
     | '/guia'
     | '/papeleria'
     | '/recordatorios'
+    | '/api/migration-backup'
     | '/'
     | '/productores/$id'
     | '/productores/nuevo'
@@ -219,6 +230,7 @@ export interface FileRouteTypes {
     | '/_app/guia'
     | '/_app/papeleria'
     | '/_app/recordatorios'
+    | '/api/migration-backup'
     | '/_app/'
     | '/_app/productores/$id'
     | '/_app/productores/nuevo'
@@ -229,6 +241,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   LoginRoute: typeof LoginRoute
+  ApiMigrationBackupRoute: typeof ApiMigrationBackupRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -325,6 +338,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRecordatoriosRouteImport
       parentRoute: typeof AppRoute
     }
+    '/api/migration-backup': {
+      id: '/api/migration-backup'
+      path: '/api/migration-backup'
+      fullPath: '/api/migration-backup'
+      preLoaderRoute: typeof ApiMigrationBackupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_app/productores/': {
       id: '/_app/productores/'
       path: '/productores'
@@ -395,6 +415,7 @@ const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   LoginRoute: LoginRoute,
+  ApiMigrationBackupRoute: ApiMigrationBackupRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport
