@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { exportCsv, exportExcel } from "@/lib/crm";
 import { CYCLE } from "@/lib/catalog";
 import { useViewAs } from "@/lib/view-as";
+import { downloadMigrationBackup } from "@/lib/migration-backup";
 
 export const Route = createFileRoute("/_app/exportar")({ component: ExportPage });
 
@@ -22,8 +23,17 @@ function downloadBlob(content: string, filename: string, type: string) {
 }
 
 function ExportPage() {
-  const { agent, agentLabel } = useViewAs();
+  const { agent, agentLabel, isGerente } = useViewAs();
   const payload = { data: { agent: agent || undefined } };
+
+  const backup = useMutation({
+    mutationFn: () => downloadMigrationBackup(),
+    onSuccess: (result) => {
+      downloadBlob(result.encrypted, result.filename, "application/octet-stream");
+      toast.success("Respaldo cifrado descargado. Consérvalo para el traslado.");
+    },
+    onError: (error: Error) => toast.error(error.message),
+  });
 
   const xls = useMutation({
     mutationFn: () => exportExcel(payload),
@@ -46,6 +56,26 @@ function ExportPage() {
   return (
     <div className="mx-auto max-w-lg space-y-4">
       <PageBack to="/" label="Inicio" />
+      {isGerente ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Respaldo para traslado</CardTitle>
+            <CardDescription>
+              Copia los registros y las cuentas de todo el equipo, de todos los ciclos.
+              El archivo va cifrado para abrirse con la llave de recuperación preparada para Santa Rosa.
+              Descargarlo no borra ni cambia la información.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button disabled={backup.isPending} onClick={() => {
+              if (window.confirm("¿Descargar el respaldo cifrado de todo Santa Rosa? Incluye las cuentas y los expedientes de todos los comisionistas.")) backup.mutate();
+            }}>
+              <Download className="size-4" />
+              {backup.isPending ? "Preparando respaldo…" : "Descargar respaldo cifrado"}
+            </Button>
+          </CardContent>
+        </Card>
+      ) : null}
       <Card>
         <CardHeader>
           <CardTitle>Bajar captura</CardTitle>

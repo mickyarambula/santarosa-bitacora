@@ -18,6 +18,8 @@ test-results/
 !.env.example
 *.pem
 *.key
+.migration-private/
+*.srbackup
 
 # grok sandbox (platform, not the app)
 .grok/skills/
