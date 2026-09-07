@@ -1,0 +1,9 @@
+.migration-private/
+*.srbackup
+*.pem
+*.key
+.env*
+!.env.example
+screenshots/
+attachments/
+.git/

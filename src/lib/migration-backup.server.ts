@@ -1,11 +1,8 @@
 import { Pool } from "pg";
-import { setResponseHeader } from "@tanstack/react-start/server";
 import { assertBackupRuntime, BackupError, collectBackup, encryptBackup } from "./backup-core.server";
 import { BACKUP_PUBLIC_KEY, BACKUP_EXPIRES_AT, BACKUP_CODE_REVISION } from "./backup-recipient.server";
 
 export async function makeMigrationBackup(userId: string) {
-  setResponseHeader("Cache-Control", "private, no-store");
-  setResponseHeader("Pragma", "no-cache");
   const connectionString = process.env.DATABASE_URL?.trim();
   assertBackupRuntime(Boolean(connectionString), BACKUP_EXPIRES_AT);
   const pool = new Pool({ connectionString, max: 1, connectionTimeoutMillis: 5000, query_timeout: 10000 });

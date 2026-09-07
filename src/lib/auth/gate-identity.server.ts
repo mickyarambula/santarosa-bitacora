@@ -27,7 +27,7 @@ function env(key: string): string | undefined {
 }
 
 export function gateIdentityEnabled(): boolean {
-  return env("VITE_AUTH_ENABLED") !== "false" && Boolean(env("GROK_PROJECT_ID"));
+  return env("VITE_AUTH_MODE") !== "standalone" && env("VITE_AUTH_ENABLED") !== "false" && Boolean(env("GROK_PROJECT_ID"));
 }
 
 async function defaultJwksFetch(url: string): Promise<GateJwks | null> {

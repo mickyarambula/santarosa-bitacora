@@ -39,6 +39,9 @@ export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
 
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
+export const SIGN_IN_PROVIDERS = import.meta.env.VITE_AUTH_MODE === "standalone"
+  ? (import.meta.env.VITE_GOOGLE_ENABLED === "true" ? [{ providerId: "google", label: "Google" }] : [])
+  : GROK_PROVIDERS;
 
 // ── Live-preview bearer token ────────────────────────────────────────────────
 // The embedded preview iframe has partitioned cookies, so we keep the session's
@@ -100,6 +103,16 @@ export async function signIn(
   providerId: string,
   opts: { callbackURL?: string; errorCallbackURL?: string } = {},
 ): Promise<void> {
+  if (import.meta.env.VITE_AUTH_MODE === "standalone") {
+    if (providerId !== "google") throw new Error("Proveedor de acceso no disponible.");
+    const { data, error } = await authClient.signIn.social({
+      provider: "google", callbackURL: opts.callbackURL ?? "/",
+      errorCallbackURL: opts.errorCallbackURL ?? "/login",
+    });
+    if (error) throw new Error(error.message ?? "No se pudo entrar con Google.");
+    if (data?.url) window.location.href = data.url;
+    return;
+  }
   const callbackURL = opts.callbackURL ?? "/";
   const errorCallbackURL = opts.errorCallbackURL ?? "/";
 

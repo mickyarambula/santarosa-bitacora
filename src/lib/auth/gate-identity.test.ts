@@ -4,6 +4,7 @@ import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { SignJWT, exportJWK, type JWK } from "jose";
 import {
   gateIdentityFromHeaders,
+  gateIdentityEnabled,
   gateKeyResolver,
   sessionBoundToGateIdentity,
   verifyGateIdentityToken,
@@ -12,6 +13,24 @@ import {
 
 const ISSUER = "https://gate.app-builder-testing.com";
 const AUDIENCE = "app:proj-123";
+
+it("standalone ignores an inherited Grok project identity gate", () => {
+  const keys = ["VITE_AUTH_MODE", "VITE_AUTH_ENABLED", "GROK_PROJECT_ID"];
+  const saved = keys.map(key => process.env[key]);
+  try {
+    process.env.VITE_AUTH_ENABLED = "true";
+    process.env.GROK_PROJECT_ID = "synthetic-inherited-project";
+    delete process.env.VITE_AUTH_MODE;
+    assert.equal(gateIdentityEnabled(), true);
+    process.env.VITE_AUTH_MODE = "standalone";
+    assert.equal(gateIdentityEnabled(), false);
+  } finally {
+    keys.forEach((key, i) => {
+      if (saved[i] === undefined) delete process.env[key];
+      else process.env[key] = saved[i];
+    });
+  }
+});
 
 type TestKey = { privateKey: KeyObject; jwk: JWK; kid: string };
 
