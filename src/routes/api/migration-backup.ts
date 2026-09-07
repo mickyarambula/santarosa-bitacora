@@ -4,7 +4,10 @@ export const Route = createFileRoute("/api/migration-backup")({
   server: { handlers: {
     POST: async ({ request }) => {
       const headers = { "Cache-Control": "private, no-store" };
-      if (request.headers.get("origin") !== new URL(request.url).origin) {
+      // Grok's reverse proxy can give Request an internal URL. Compare against
+      // the configured public auth origin, never an untrusted forwarded host.
+      const publicOrigin = new URL(process.env.BETTER_AUTH_URL || request.url).origin;
+      if (request.headers.get("origin") !== publicOrigin) {
         return new Response("Solicitud no permitida", { status: 403, headers });
       }
       const { auth } = await import("@/lib/auth/server");
