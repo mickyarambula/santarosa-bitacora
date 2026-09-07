@@ -98,6 +98,9 @@ function Login() {
             Captura productores en el campo, agenda la visita y ve checando la papelería — sin
             pelearte con el Excel. {COMPANY}, Los Mochis y Guasave.
           </p>
+          {import.meta.env.VITE_AUTH_MODE === "standalone" && (
+            <p className="mt-4 text-xs text-subtle"><a href="/privacidad.html" className="underline">Privacidad y contacto</a></p>
+          )}
         </section>
 
         <section className="w-full max-w-md justify-self-center rounded-xl bg-bg p-6 text-fg shadow-[var(--shadow-border)] sm:p-8">
