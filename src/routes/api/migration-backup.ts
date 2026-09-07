@@ -1,6 +1,4 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { auth } from "@/lib/auth/server";
-import { makeMigrationBackup } from "@/lib/migration-backup.server";
 
 export const Route = createFileRoute("/api/migration-backup")({
   server: { handlers: {
@@ -9,9 +7,11 @@ export const Route = createFileRoute("/api/migration-backup")({
       if (request.headers.get("origin") !== new URL(request.url).origin) {
         return new Response("Solicitud no permitida", { status: 403, headers });
       }
+      const { auth } = await import("@/lib/auth/server");
       const session = await auth.api.getSession({ headers: request.headers });
       if (!session?.user) return new Response("Inicia sesión de gerencia antes de la pausa.", { status: 401, headers });
       try {
+        const { makeMigrationBackup } = await import("@/lib/migration-backup.server");
         // collectBackup checks active management, revocation and complete schema.
         const result = await makeMigrationBackup(session.user.id);
         return new Response(result.encrypted, { headers: {
