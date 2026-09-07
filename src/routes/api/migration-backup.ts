@@ -4,9 +4,12 @@ export const Route = createFileRoute("/api/migration-backup")({
   server: { handlers: {
     POST: async ({ request }) => {
       const headers = { "Cache-Control": "private, no-store" };
-      // Grok's reverse proxy can give Request an internal URL. Compare against
-      // the configured public auth origin, never an untrusted forwarded host.
-      const publicOrigin = new URL(process.env.BETTER_AUTH_URL || request.url).origin;
+      // This temporary route belongs exclusively to the verified Grok source.
+      // Its proxy/environment cannot change the trusted browser origin.
+      if (import.meta.env.VITE_AUTH_MODE === "standalone") {
+        return new Response("No disponible", { status: 404, headers });
+      }
+      const publicOrigin = "https://crmsantarosa.grok.me";
       if (request.headers.get("origin") !== publicOrigin) {
         return new Response("Solicitud no permitida", { status: 403, headers });
       }
