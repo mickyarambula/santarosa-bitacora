@@ -2,7 +2,7 @@ import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { GROK_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
+import { SIGN_IN_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { BrandLogo } from "@/components/brand-logo";
 import { Button } from "@/components/ui/button";
@@ -112,7 +112,7 @@ function Login() {
 
           {authEnabled ? (
             <div className="mt-6 grid gap-2">
-              {GROK_PROVIDERS.map((p) => (
+              {SIGN_IN_PROVIDERS.map((p) => (
                 <Button
                   key={p.providerId}
                   type="button"
@@ -121,7 +121,12 @@ function Login() {
                   disabled={busy || isPending}
                   onClick={() => {
                     rememberCode(accessCode);
-                    signIn(p.providerId, { callbackURL: "/" });
+                    setBusy(true);
+                    setError(null);
+                    signIn(p.providerId, { callbackURL: "/", errorCallbackURL: "/login" }).catch((err) => {
+                      setError(err instanceof Error ? err.message : "No se pudo entrar.");
+                      setBusy(false);
+                    });
                   }}
                 >
                   Continuar con {p.label}

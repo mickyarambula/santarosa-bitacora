@@ -10,6 +10,11 @@ const rawDatabaseUrl =
 const databaseUrl =
   rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : undefined;
 
+// A standalone deployment must never silently start an empty embedded CRM.
+if (process.env.VITE_AUTH_MODE === "standalone" && process.env.VERCEL && !databaseUrl) {
+  throw new Error("Falta configurar la base de datos de Santa Rosa.");
+}
+
 /**
  * Active backend: real **Neon** when `DATABASE_URL` is set (deployed / configured
  * sandbox), otherwise a local embedded **PGLite** (Postgres compiled to WASM) so

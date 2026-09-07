@@ -1,8 +1,9 @@
 /**
  * Self-hosted Better Auth for THIS app (server-only).
  *
- * Pre-wired for live preview + deploy — do not rewrite this file. To enable
- * local email/password, flip the flag in `./email-password` only (see auth skill).
+ * VITE_AUTH_MODE=standalone uses our own Google client and local passwords,
+ * without the Grok broker or gate. The original mode remains for the source
+ * application while migration is verified.
  *
  * The app runs its own Better Auth at `/api/auth/*`, so the session cookie stays
  * on this app's own origin. Sign-in federates to the shared **Grok auth broker**
@@ -73,6 +74,7 @@ const env = (key: string): string | undefined => {
 // Explicit off-switch. The deployer sets `VITE_AUTH_ENABLED=true` when it
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
 const authDisabled = env("VITE_AUTH_ENABLED") === "false";
+const standalone = env("VITE_AUTH_MODE") === "standalone";
 
 // Broker federation creds: the deployer injects a per-app client when deployed;
 // otherwise fall back to the shared live-preview client, which the broker accepts
@@ -83,7 +85,7 @@ const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET
 
 /** True when federated sign-in is active (real auth is enforced). */
 export const authConfigured =
-  !authDisabled && Boolean(grokClientId && grokClientSecret);
+  !authDisabled && (standalone ? emailAndPasswordEnabled : Boolean(grokClientId && grokClientSecret));
 
 // This app's own Better Auth origin. When deployed the deployer injects the
 // public URL. In the sandbox live preview there's no fixed URL (each preview gets
@@ -126,6 +128,13 @@ const trustedOrigins: string[] = explicitBaseURL
     ];
 
 const databaseUrl = env("DATABASE_URL");
+if (standalone && databaseUrl && (!explicitBaseURL || !env("BETTER_AUTH_SECRET"))) {
+  throw new Error("Santa Rosa necesita BETTER_AUTH_URL y BETTER_AUTH_SECRET para operar fuera de Grok.");
+}
+if (standalone && env("VITE_GOOGLE_ENABLED") === "true" &&
+    (!env("GOOGLE_CLIENT_ID") || !env("GOOGLE_CLIENT_SECRET"))) {
+  throw new Error("Falta configurar el acceso propio con Google de Santa Rosa.");
+}
 
 // Static broker OAuth endpoints (skip OIDC discovery on every sign-in / callback).
 // Discovery would cost an extra network hop to the broker before the popup can
@@ -150,7 +159,7 @@ export const SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 
 // Built separately so the `betterAuth({...})` call stays easy to edit without
 // breaking brackets (models often trip on the conditional plugin spread).
-const grokOAuthPlugin = authConfigured
+const grokOAuthPlugin = authConfigured && !standalone
   ? genericOAuth({
       config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
         providerId,
@@ -178,6 +187,12 @@ export const auth = betterAuth({
   // globalThis so HMR doesn't invalidate PGLite-backed sessions (see above).
   secret: env("BETTER_AUTH_SECRET") ?? previewAuthSecret(),
   database,
+  ...(standalone && env("GOOGLE_CLIENT_ID") && env("GOOGLE_CLIENT_SECRET") ? {
+    socialProviders: { google: {
+      clientId: env("GOOGLE_CLIENT_ID")!, clientSecret: env("GOOGLE_CLIENT_SECRET")!,
+      prompt: "select_account" as const,
+    } },
+  } : {}),
 
   // CSRF / origin check for credentialed auth POSTs (email sign-up/sign-in, …).
   // See `trustedOrigins` construction above — must cover live preview hosts AND
@@ -194,12 +209,13 @@ export const auth = betterAuth({
     encryptOAuthTokens: true,
     accountLinking: {
       enabled: true,
-      trustedProviders: [
+      trustedProviders: standalone ? [] : [
         ...GROK_PROVIDERS.map((p) => p.providerId),
         GATE_PROVIDER_ID,
       ],
-      // X's synthetic email is never "verified", so don't gate linking on the
-      // local user's email-verified state.
+      // Migrated local emails can be unverified. In standalone mode the empty
+      // trustedProviders list still REQUIRES Google's emailVerified assertion
+      // before attaching its native identity to the existing user by email.
       requireLocalEmailVerified: false,
     },
   },
@@ -232,7 +248,7 @@ export const auth = betterAuth({
   },
 
   plugins: [
-    gateIdentitySessions(),
+    ...(!standalone ? [gateIdentitySessions()] : []),
 
     // One genericOAuth provider per upstream (when auth is on), all federating
     // to the broker with the SAME client and differing only by the `idp` hint.
