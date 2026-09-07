@@ -1,7 +1,27 @@
 # Migración de Santa Rosa
 
-Estado: preparación en la rama `codex/migracion-vercel`. El equipo continúa
-en https://crmsantarosa.grok.me/ hasta verificar el traslado final.
+Estado al 7 de septiembre de 2026: migración restaurada, integrada por PR 2
+y publicada en https://santarosa-bitacora.vercel.app/. Se verificó el acceso
+real con Google como la misma gerencia y la conservación de las 18 cuentas,
+61 productores, 15 grupos, 645 registros de papelería y 25 citas.
+Las 13 tablas de CRM/configuración coinciden íntegramente con el respaldo
+final; las 11 contraseñas se conservaron. Las sesiones antiguas se invalidaron.
+El usuario debe volver a entrar con su mismo correo o cuenta Google.
+
+Vercel: proyecto `santarosa-bitacora`, cuenta `mickyarambulas-projects`.
+Neon propio: `santarosa-bitacora-db`, proyecto `soft-sun-73911653`, rama `main`.
+Google propio: `abiding-aspect-507922-i6`, OAuth en producción.
+La base original de Grok se conserva; no debe recibir nuevas capturas.
+El respaldo final es del 7 de septiembre a las 23:29:24 UTC, cifrado y privado.
+No subirlo ni subir su llave a GitHub.
+
+Para mejoras futuras: rama de trabajo, pruebas con base aislada, PR revisable,
+integración autorizada en `main` y comprobación de la publicación de Vercel.
+GitHub ya está conectado: integrar en `main` dispara el despliegue de producción.
+No integrar para “solo guardar código” si todavía no se debe publicar.
+La vista de ensayo usa una rama Neon independiente; las credenciales de ensayo
+están limitadas a `codex/migracion-vercel`, no a todos los previews.
+Para otra rama, preparar su entorno aislado antes de probarla.
 
 ## Accesos
 
@@ -50,8 +70,10 @@ abiertas, antes de ejecutar el CRM. Mantiene únicamente el POST de
 Iniciar sesión de gerencia antes de publicar la pausa. La página de pausa
 contiene el formulario para descargar el respaldo final.
 
-Tras confirmar el destino, `VITE_MIGRATION_SOURCE_MODE=moved` redirige las
-navegaciones al dominio definitivo; rechaza escrituras viejas sin reenviarlas.
+Tras confirmar el destino, `VITE_MIGRATION_SOURCE_MODE=moved` sirve una página
+que lleva el navegador al dominio definitivo y conserva la ruta. Usa HTML con
+enlace, meta refresh y `location.replace`, porque el proxy de Grok devolvió 502
+con la redirección HTTP externa. Rechaza escrituras viejas sin reenviarlas.
 Para revertir una pausa antes del cambio, quitar esta variable y republicar el
 origen. El modo `standalone` ignora esta variable, incluso si se hereda.
 
