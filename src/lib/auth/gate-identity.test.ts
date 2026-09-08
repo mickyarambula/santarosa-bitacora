@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { SignJWT, exportJWK, type JWK } from "jose";
@@ -227,6 +227,19 @@ describe("verifyGateIdentityToken", () => {
 });
 
 describe("gateIdentityFromHeaders", () => {
+  const keys = ["VITE_AUTH_MODE", "VITE_AUTH_ENABLED", "GROK_PROJECT_ID", "GROK_GATE_ORIGIN"];
+  let saved: (string | undefined)[];
+  beforeEach(() => {
+    saved = keys.map(key => process.env[key]);
+    delete process.env.VITE_AUTH_MODE;
+    process.env.VITE_AUTH_ENABLED = "true";
+    delete process.env.GROK_PROJECT_ID;
+    delete process.env.GROK_GATE_ORIGIN;
+  });
+  afterEach(() => keys.forEach((key, i) => {
+    if (saved[i] === undefined) delete process.env[key];
+    else process.env[key] = saved[i];
+  }));
   it("verifies the header token end to end and fails closed without it", async () => {
     const key = await makeKey("k1");
     const { fetchImpl } = staticJwks([key.jwk]);
