@@ -1,3 +1,4 @@
+import { RescheduleVisit } from "@/components/reschedule-visit";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -31,6 +32,7 @@ function CitasPage() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["visits"] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["producer"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -52,32 +54,36 @@ function CitasPage() {
         <div className="flex flex-wrap items-center gap-2">
           <ScheduleVisitButton />
           <div className="flex gap-1 rounded-lg bg-secondary p-1">
-          {(
-            [
-              ["hoy", "Hoy"],
-              ["semana", "Semana"],
-              ["todas", "Todas"],
-            ] as const
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setRange(id)}
-              className={
-                range === id
-                  ? "h-10 rounded-md bg-surface px-3 text-sm font-medium shadow-sm"
-                  : "h-10 rounded-md px-3 text-sm text-muted"
-              }
-            >
-              {label}
-            </button>
-          ))}
+            {(
+              [
+                ["hoy", "Hoy"],
+                ["semana", "Semana"],
+                ["todas", "Todas"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setRange(id)}
+                className={
+                  range === id
+                    ? "h-10 rounded-md bg-surface px-3 text-sm font-medium shadow-sm"
+                    : "h-10 rounded-md px-3 text-sm text-muted"
+                }
+              >
+                {label}
+              </button>
+            ))}
           </div>
         </div>
       </header>
 
       {q.isPending ? (
         <Skeleton className="h-48" />
+      ) : q.error ? (
+        <p role="alert">
+          No se pudo cargar la agenda. <button onClick={() => void q.refetch()}>Reintentar</button>
+        </p>
       ) : visits.length === 0 ? (
         <EmptyState
           icon={<CalendarDays className="size-8" />}
@@ -89,7 +95,9 @@ function CitasPage() {
         <div className="space-y-6">
           {groups.map(([day, items]) => (
             <section key={day}>
-              <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-subtle">{day}</h2>
+              <h2 className="mb-2 text-xs font-medium uppercase tracking-wider text-subtle">
+                {day}
+              </h2>
               <ul className="grid gap-2">
                 {items.map((v) => (
                   <li
@@ -131,6 +139,12 @@ function CitasPage() {
                             </option>
                           ))}
                         </NativeSelect>
+                        <RescheduleVisit visit={v} />
+                        {v.status === "programada" && Date.parse(v.scheduledAt) < Date.now() ? (
+                          <span className="text-sm text-clay">
+                            Hora pasada · confirma el resultado
+                          </span>
+                        ) : null}
                         <PhoneActions
                           compact
                           phone={v.phone}
@@ -142,7 +156,12 @@ function CitasPage() {
                           })}
                         />
                         {v.status === "programada" ? (
-                          <OfficeInvite compact producerId={v.producerId} visitId={v.id} producerName={v.producerName} />
+                          <OfficeInvite
+                            compact
+                            producerId={v.producerId}
+                            visitId={v.id}
+                            producerName={v.producerName}
+                          />
                         ) : null}
                       </div>
                     </div>

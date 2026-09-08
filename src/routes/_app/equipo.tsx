@@ -1,3 +1,4 @@
+import { AccountMerge } from "@/components/account-merge";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -64,7 +65,12 @@ function EquipoPage() {
   });
 
   if (team.isPending) return <Skeleton className="h-64" />;
-  if (!team.data) return null;
+  if (team.error || !team.data)
+    return (
+      <p role="alert">
+        No se pudo cargar el equipo. <button onClick={() => void team.refetch()}>Reintentar</button>
+      </p>
+    );
   const { me, agents } = team.data;
 
   return (
@@ -80,7 +86,17 @@ function EquipoPage() {
 
       <CarteraList />
 
-      {me.role === "gerente" ? <PurgeDemoPanel /> : null}
+      {me.role === "gerente" ? (
+        <>
+          <AccountMerge members={agents} actorId={me.userId} />
+          <details>
+            <summary className="cursor-pointer text-sm text-muted">
+              Herramientas de limpieza
+            </summary>
+            <PurgeDemoPanel />
+          </details>
+        </>
+      ) : null}
 
       {me.role === "gerente" ? <LockPanel /> : null}
 
@@ -102,7 +118,7 @@ function EquipoPage() {
 
       <section>
         <h2 className="mb-3 font-display text-xl font-medium">Quién ya entró</h2>
-        <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
+        <div className="overflow-x-auto rounded-xl bg-surface shadow-[var(--shadow-border)]">
           <table className="w-full text-sm">
             <thead className="text-left text-xs uppercase tracking-wider text-subtle">
               <tr className="border-b border-border">
@@ -119,6 +135,11 @@ function EquipoPage() {
                 <tr key={a.userId} className="border-b border-border last:border-0">
                   <td className="px-4 py-3 font-medium">
                     {a.displayName}
+                    {me.role === "gerente" ? (
+                      <span className="mt-1 block text-xs font-normal text-muted">
+                        {a.email ?? "Sin correo"}
+                      </span>
+                    ) : null}
                     {a.userId === me.userId ? (
                       <span className="ml-2 text-xs text-subtle">tú</span>
                     ) : null}
@@ -167,11 +188,7 @@ function EquipoPage() {
                       {a.userId === me.userId ? (
                         <span className="text-xs text-subtle">—</span>
                       ) : (
-                        <MemberActions
-                          name={a.displayName}
-                          userId={a.userId}
-                          status={a.status}
-                        />
+                        <MemberActions name={a.displayName} userId={a.userId} status={a.status} />
                       )}
                     </td>
                   ) : null}
@@ -213,8 +230,8 @@ function PurgeDemoPanel() {
       </CardHeader>
       <CardContent className="grid gap-3">
         <p className="text-sm text-muted">
-          Quita los productores de ejemplo (Luis Cota, María Beltrán, etc.) y las cuentas que se
-          abrieron solo para probar. Lo que el equipo capturó de verdad se queda.
+          Quita únicamente fichas marcadas explícitamente como ejemplo. Esta acción no elimina
+          cuentas.
         </p>
         <Button
           type="button"
@@ -245,7 +262,9 @@ function LockPanel() {
   const mut = useMutation({
     mutationFn: setLock,
     onSuccess: (r) => {
-      toast.success(r.enabled ? "Candado puesto. Pásales la clave en el grupo." : "Candado abierto.");
+      toast.success(
+        r.enabled ? "Candado puesto. Pásales la clave en el grupo." : "Candado abierto.",
+      );
       setCode("");
       setConfirm("");
       void qc.invalidateQueries({ queryKey: ["lock"] });
@@ -300,7 +319,9 @@ function LockPanel() {
               variant="outline"
               disabled={mut.isPending}
               onClick={() => {
-                if (window.confirm("¿Abrir el candado? Cualquiera con el link podrá crear cuenta.")) {
+                if (
+                  window.confirm("¿Abrir el candado? Cualquiera con el link podrá crear cuenta.")
+                ) {
                   mut.mutate({ data: { enabled: false } });
                 }
               }}
@@ -361,7 +382,13 @@ function MemberActions({
       >
         {status === "bloqueado" ? "Habilitar" : "Inhabilitar"}
       </Button>
-      <Button type="button" variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Eliminar">
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        onClick={() => setOpen(true)}
+        aria-label="Eliminar"
+      >
         <Trash2 className="size-4" />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -369,8 +396,8 @@ function MemberActions({
           <DialogHeader>
             <DialogTitle>Eliminar a {name}</DialogTitle>
             <DialogDescription>
-              No se puede deshacer. Si era una cuenta de prueba, deja marcada la casilla para
-              borrar también a los productores que capturó. Escribe el nombre tal cual: {name}
+              No se puede deshacer. Si era una cuenta de prueba, deja marcada la casilla para borrar
+              también a los productores que capturó. Escribe el nombre tal cual: {name}
             </DialogDescription>
           </DialogHeader>
           <label className="flex items-start gap-2 text-sm">
@@ -386,8 +413,12 @@ function MemberActions({
           <Button
             type="button"
             variant="destructive"
-            disabled={delMut.isPending || confirm.trim().toLowerCase() !== name.trim().toLowerCase()}
-            onClick={() => delMut.mutate({ data: { userId, confirmName: confirm, wipeCartera: wipe } })}
+            disabled={
+              delMut.isPending || confirm.trim().toLowerCase() !== name.trim().toLowerCase()
+            }
+            onClick={() =>
+              delMut.mutate({ data: { userId, confirmName: confirm, wipeCartera: wipe } })
+            }
           >
             {delMut.isPending ? "Eliminando…" : "Sí, eliminar cuenta"}
           </Button>
@@ -421,7 +452,12 @@ function CarteraList() {
                   className="flex min-w-0 flex-1 items-center gap-2 text-left"
                   onClick={() => setOpen(expanded ? null : a.name)}
                 >
-                  <ChevronDown className={cn("size-4 shrink-0 text-muted transition-transform", expanded && "rotate-180")} />
+                  <ChevronDown
+                    className={cn(
+                      "size-4 shrink-0 text-muted transition-transform",
+                      expanded && "rotate-180",
+                    )}
+                  />
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{a.name}</span>
                     <span className="block text-xs text-muted">
@@ -585,7 +621,8 @@ function OfficeDesk({ canEdit }: { canEdit: boolean }) {
                     className="grid size-11 shrink-0 place-items-center rounded-md text-muted hover:bg-secondary hover:text-rose"
                     aria-label={`Quitar a ${p.name}`}
                     onClick={() => {
-                      if (window.confirm(`¿Quitar a ${p.name} de la lista de oficina?`)) del.mutate(p.id);
+                      if (window.confirm(`¿Quitar a ${p.name} de la lista de oficina?`))
+                        del.mutate(p.id);
                     }}
                   >
                     <Trash2 className="size-4" />
@@ -597,10 +634,7 @@ function OfficeDesk({ canEdit }: { canEdit: boolean }) {
         )}
 
         {canEdit ? (
-          <OfficePersonForm
-            pending={save.isPending}
-            onSave={(data) => save.mutate({ data })}
-          />
+          <OfficePersonForm pending={save.isPending} onSave={(data) => save.mutate({ data })} />
         ) : null}
 
         {canEdit && pings.data?.pings.length ? (
@@ -636,7 +670,13 @@ function OfficePersonForm({
   onSave,
 }: {
   pending: boolean;
-  onSave: (d: { name: string; title: string; phone: string; forInvite: boolean; forAviso: boolean }) => void;
+  onSave: (d: {
+    name: string;
+    title: string;
+    phone: string;
+    forInvite: boolean;
+    forAviso: boolean;
+  }) => void;
 }) {
   const [name, setName] = useState("");
   const [title, setTitle] = useState("");
@@ -660,7 +700,12 @@ function OfficePersonForm({
       <p className="text-sm font-medium">Agregar a alguien</p>
       <label className="grid gap-1.5">
         <span className="text-sm">Nombre</span>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cómo le dicen" required />
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Cómo le dicen"
+          required
+        />
       </label>
       <label className="grid gap-1.5">
         <span className="text-sm">Puesto</span>

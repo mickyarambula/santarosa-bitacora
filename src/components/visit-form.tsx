@@ -3,19 +3,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import { toAppDateTimeInput } from "@/lib/datetime";
 import { VISIT_PURPOSES } from "@/lib/catalog";
 
 export function VisitForm({
   onSubmit,
   pending,
+  initial,
+  requireReason = false,
 }: {
-  onSubmit: (data: { scheduledAt: string; place: string; purpose: string; notes: string }) => void;
+  onSubmit: (data: {
+    scheduledAt: string;
+    place: string;
+    purpose: string;
+    notes: string;
+    reason: string;
+  }) => void;
   pending?: boolean;
+  initial?: {
+    scheduledAt: string;
+    place: string | null;
+    purpose: string | null;
+    notes: string | null;
+  };
+  requireReason?: boolean;
 }) {
-  const [scheduledAt, setScheduledAt] = useState("");
-  const [place, setPlace] = useState("");
-  const [purpose, setPurpose] = useState<string>(VISIT_PURPOSES[0]);
-  const [notes, setNotes] = useState("");
+  const [scheduledAt, setScheduledAt] = useState(
+    initial ? toAppDateTimeInput(initial.scheduledAt) : "",
+  );
+  const [place, setPlace] = useState(initial?.place ?? "");
+  const [purpose, setPurpose] = useState<string>(initial?.purpose ?? VISIT_PURPOSES[0]);
+  const [notes, setNotes] = useState(initial?.notes ?? "");
+  const [reason, setReason] = useState("");
 
   return (
     <form
@@ -23,7 +42,7 @@ export function VisitForm({
       onSubmit={(e) => {
         e.preventDefault();
         if (!scheduledAt) return;
-        onSubmit({ scheduledAt, place, purpose, notes });
+        onSubmit({ scheduledAt, place, purpose, notes, reason });
       }}
     >
       <label className="grid gap-1.5">
@@ -57,8 +76,15 @@ export function VisitForm({
         <span className="text-sm font-medium">Nota</span>
         <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Opcional" />
       </label>
-      <Button type="submit" disabled={pending || !scheduledAt}>
-        {pending ? "Agendando…" : "Agendar visita"}
+      {requireReason ? (
+        <label className="grid gap-1.5 text-sm">
+          Motivo del cambio
+          <Input required value={reason} onChange={(e) => setReason(e.target.value)} />
+        </label>
+      ) : null}
+      <p className="text-xs text-muted">Hora de Sinaloa (Los Mochis / Guasave).</p>
+      <Button type="submit" disabled={pending || !scheduledAt || (requireReason && !reason.trim())}>
+        {pending ? "Guardando…" : initial ? "Guardar reprogramación" : "Agendar visita"}
       </Button>
     </form>
   );

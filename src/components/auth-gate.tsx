@@ -47,7 +47,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (boot.isPending || !boot.data) return <Splash />;
 
   if (boot.data.profile.status === "bloqueado") {
-    return <LockedScreen />;
+    return <LockedScreen mergedIntoEmail={boot.data.profile.mergedIntoEmail} />;
   }
 
   return (
@@ -57,17 +57,26 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
-function LockedScreen() {
+function LockedScreen({ mergedIntoEmail }: { mergedIntoEmail?: string | null }) {
   return (
     <main className="grid min-h-dvh place-items-center bg-bg px-6 text-center text-fg">
       <div className="max-w-sm">
         <BrandLogo variant="lockup" on="light" className="mx-auto w-44" priority />
         <h1 className="mt-6 font-display text-2xl font-medium tracking-tight">
-          Esta cuenta no está autorizada
+          {mergedIntoEmail ? "Tu cuenta fue unificada" : "Esta cuenta no está autorizada"}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Pide a gerencia que habilite tu cuenta desde Equipo. Volver a escribir la clave del equipo
-          no reactiva una cuenta bloqueada.
+          {mergedIntoEmail ? (
+            <>
+              Tus productores están reunidos en <strong>{mergedIntoEmail}</strong>. Sal de esta
+              cuenta y entra con ese correo con su método habitual de acceso.
+            </>
+          ) : (
+            <>
+              Pide a gerencia que habilite tu cuenta desde Equipo. Volver a escribir la clave del
+              equipo no reactiva una cuenta bloqueada.
+            </>
+          )}
         </p>
         <Button
           className="mt-6"

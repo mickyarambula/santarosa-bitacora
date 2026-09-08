@@ -16,7 +16,7 @@ import { getDashboard, clearExamples, listDuplicateGroups, listAnnouncements } f
 import { CYCLE } from "@/lib/catalog";
 import { teamAnnouncementShare, visitConfirmMessage } from "@/lib/reminders";
 import { qty, whatsappShareHref } from "@/lib/utils";
-import { formatAppTime } from "@/lib/datetime";
+import { APP_TZ, formatAppTime } from "@/lib/datetime";
 import { useViewAs } from "@/lib/view-as";
 
 export const Route = createFileRoute("/_app/")({ component: Hoy });
@@ -36,12 +36,15 @@ function Hoy() {
   const news = useQuery({
     queryKey: ["announcements"],
     queryFn: () => listAnnouncements(),
+    refetchInterval: 60000,
   });
   const clear = useMutation({
     mutationFn: () => clearExamples(),
     onSuccess: (r) => {
       toast.success(
-        r.removed ? `Quitamos ${r.removed} de ejemplo. Ya puedes capturar los reales.` : "No había ejemplos.",
+        r.removed
+          ? `Quitamos ${r.removed} de ejemplo. Ya puedes capturar los reales.`
+          : "No había ejemplos.",
       );
       void qc.invalidateQueries();
     },
@@ -67,7 +70,11 @@ function Hoy() {
   }
 
   const d = dash.data;
-  const hour = new Date().getHours();
+  const hour = Number(
+    new Intl.DateTimeFormat("en", { timeZone: APP_TZ, hour: "numeric", hourCycle: "h23" }).format(
+      new Date(),
+    ),
+  );
   const hello = hour < 12 ? "Buenos días" : hour < 19 ? "Buenas tardes" : "Buenas noches";
   const empty = d.kpis.producers === 0;
   const title = agentLabel ?? d.profile.displayName;
@@ -80,7 +87,7 @@ function Hoy() {
           <h1 className="font-display text-3xl font-medium tracking-tight md:text-4xl">{title}</h1>
           <p className="mt-1 text-sm text-muted">
             {agentLabel
-              ? `Así ve ${agentLabel} el ciclo ${CYCLE}`
+              ? `Cartera de ${agentLabel} · ciclo ${CYCLE} · conservas permisos de gerencia`
               : d.profile.role === "gerente"
                 ? `Tablero del ciclo ${CYCLE} · ves a todo el equipo`
                 : `Tu captura del ciclo ${CYCLE}`}
@@ -98,11 +105,21 @@ function Hoy() {
         .filter((a) => a.kind === "equipo")
         .slice(0, 3)
         .map((a) => (
-          <article key={a.id} className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-4">
-            <p className="text-xs font-medium uppercase tracking-wider text-primary">Aviso de gerencia</p>
+          <article
+            key={a.id}
+            className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-4"
+          >
+            <p className="text-xs font-medium uppercase tracking-wider text-primary">
+              Aviso de gerencia
+            </p>
             <p className="mt-1 font-medium">{a.title}</p>
             <p className="mt-1 whitespace-pre-wrap text-sm text-muted">{a.body}</p>
             <p className="mt-2 text-xs text-subtle">{a.authorName}</p>
+            {isGerente ? (
+              <Link to="/avisos" className="mt-2 mr-4 inline-flex text-sm underline">
+                Administrar / retirar aviso
+              </Link>
+            ) : null}
             <a
               className="mt-2 inline-flex text-sm font-medium text-primary underline-offset-4 hover:underline"
               href={whatsappShareHref(
@@ -257,7 +274,12 @@ function Hoy() {
                             place: v.place,
                           })}
                         />
-                        <OfficeInvite compact producerId={v.producerId} visitId={v.id} producerName={v.producerName} />
+                        <OfficeInvite
+                          compact
+                          producerId={v.producerId}
+                          visitId={v.id}
+                          producerName={v.producerName}
+                        />
                       </div>
                     </div>
                   ))
@@ -368,7 +390,9 @@ function Hoy() {
                   </tbody>
                 </table>
               </div>
-              <p className="mt-2 text-xs text-muted">Toca un nombre para ver el ciclo como lo ve él.</p>
+              <p className="mt-2 text-xs text-muted">
+                Toca un nombre para consultar su cartera con tus permisos de gerencia.
+              </p>
             </section>
           ) : null}
 

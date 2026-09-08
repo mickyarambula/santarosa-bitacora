@@ -101,7 +101,7 @@ module.exports = async function makeHarness() {
     async reset() {
       injectedFailure = "";
       await db.exec(
-        "truncate producers cascade; truncate producer_groups, profiles, revoked_users, announcements;",
+        "truncate producers cascade; truncate producer_groups, profiles, revoked_users, announcements, crm_audit;",
       );
       await db.query(
         "insert into profiles(user_id,display_name,role,status) values ('manager','Gerencia prueba','gerente','activo'),('agent_a','Agente A','comisionista','activo'),('agent_b','Agente B','comisionista','activo')",

@@ -15,6 +15,8 @@ export type Role = "gerente" | "comisionista";
 export type AccountStatus = "activo" | "bloqueado";
 
 export type Profile = {
+  mergedIntoUserId?: string | null;
+  mergedIntoEmail?: string | null;
   userId: string;
   displayName: string;
   role: Role;
@@ -91,6 +93,7 @@ export type Visit = {
 };
 
 export type ActivityItem = {
+  actorName: string;
   id: string;
   producerId: string;
   userId: string;
@@ -217,6 +220,10 @@ export type ProducerGroup = {
 };
 
 export type Announcement = {
+  archivedAt: string | null;
+  expiresAt: string | null;
+  updatedAt: string;
+  state: "vigente" | "vencido" | "retirado";
   id: string;
   authorUserId: string;
   authorName: string;
