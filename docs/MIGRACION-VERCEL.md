@@ -82,3 +82,7 @@ No se activa al integrar el código: requiere configurar y publicar el origen.
 
 Una compilación correcta o un push a GitHub no certifican la publicación ni
 el traslado de datos. La base principal y la de pruebas deben estar separadas.
+
+El 7 de septiembre se integró PR 3 y se volvió a publicar el origen en modo
+`moved`: la respuesta HTML es 200, conserva rutas y dirige a Vercel.
+Las escrituras antiguas reciben 409; no se reenvían al destino.

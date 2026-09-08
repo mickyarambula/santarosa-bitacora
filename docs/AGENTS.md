@@ -1,6 +1,6 @@
 # Santa Rosa — instrucciones para el agente
 
-Repo: `mickyarambula/santarosa-bitacora` (privado).
+Repo: `mickyarambula/santarosa-bitacora` (verifica su visibilidad en GitHub).
 App: bitácora CRM de Granos Santa Rosa. Remix/TanStack Start + Tailwind + Better Auth + Postgres (Neon / PGLite).
 
 ## Negocio
@@ -42,5 +42,7 @@ App: bitácora CRM de Granos Santa Rosa. Remix/TanStack Start + Tailwind + Bette
 1. Un tema por commit.
 2. No gold-plating.
 3. Typecheck / tests del archivo tocado si existen (`*.test.ts`).
-4. Push a `main` de este repo.
-5. Publicar la app en Grok (o Vercel si ya está enlazado). El repo no es el servidor de producción por sí solo.
+4. Trabajar en una rama y entregar un PR revisable con pruebas aisladas antes de integrar.
+5. Producción: https://santarosa-bitacora.vercel.app (Vercel + Neon propio). Integrar y publicar solo dentro de la autorización del usuario; distinguir preparado, integrado y publicado.
+6. El enlace viejo de Grok redirige a Vercel. No volver a publicar el CRM antiguo ni cambiar alojamiento sin autorización específica.
+7. Nunca usar datos ni infraestructura de Al Pitazo u otros proyectos para estas pruebas.
