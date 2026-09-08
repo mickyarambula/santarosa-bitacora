@@ -49,26 +49,39 @@ export function findDuplicateProducer(
 ): DupHit | null {
   const key = nameKey(candidate.name);
   const phone = phoneKey(candidate.phone);
-  const grouping = Boolean(candidate.groupId || (candidate.newGroupName ?? "").trim());
   if (!key) return null;
 
   for (const r of rows) {
     if (candidate.id && r.id === candidate.id) continue;
     if (nameKey(r.name) === key) {
-      return { id: r.id, name: r.name, agent: r.comisionistaName, zone: r.zone, via: "nombre", groupId: r.groupId };
+      return {
+        id: r.id,
+        name: r.name,
+        agent: r.comisionistaName,
+        zone: r.zone,
+        via: "nombre",
+        groupId: r.groupId,
+      };
     }
   }
   if (!phone) return null;
   for (const r of rows) {
     if (candidate.id && r.id === candidate.id) continue;
     if (phoneKey(r.phone) !== phone) continue;
-    if (grouping) {
-      if (r.groupId && candidate.groupId && r.groupId !== candidate.groupId) {
-        return { id: r.id, name: r.name, agent: r.comisionistaName, zone: r.zone, via: "telefono", groupId: r.groupId };
-      }
+    if (
+      candidate.groupId &&
+      r.groupId === candidate.groupId &&
+      r.ownerUserId === candidate.ownerUserId
+    )
       continue;
-    }
-    return { id: r.id, name: r.name, agent: r.comisionistaName, zone: r.zone, via: "telefono", groupId: r.groupId };
+    return {
+      id: r.id,
+      name: r.name,
+      agent: r.comisionistaName,
+      zone: r.zone,
+      via: "telefono",
+      groupId: r.groupId,
+    };
   }
   return null;
 }
@@ -161,7 +174,8 @@ export function pickWinner<T extends RankedDup>(group: T[]): T {
   if (!group.length) throw new Error("No hay fichas para comparar.");
   return [...group].sort((a, b) => {
     if (b.hectares !== a.hectares) return b.hectares - a.hectares;
-    if (stageScore(b.stage) !== stageScore(a.stage)) return stageScore(b.stage) - stageScore(a.stage);
+    if (stageScore(b.stage) !== stageScore(a.stage))
+      return stageScore(b.stage) - stageScore(a.stage);
     const aPhone = phoneKey(a.phone) ? 1 : 0;
     const bPhone = phoneKey(b.phone) ? 1 : 0;
     if (bPhone !== aPhone) return bPhone - aPhone;

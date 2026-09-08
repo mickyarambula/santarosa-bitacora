@@ -18,11 +18,23 @@ export const ZONES = [
 export type Zone = (typeof ZONES)[number];
 
 export const CROPS = [
-  { id: "maiz_blanco", label: "Maíz blanco", defaultYield: 12, unit: "ton/ha", defaultPerHa: 35000 },
+  {
+    id: "maiz_blanco",
+    label: "Maíz blanco",
+    defaultYield: 12,
+    unit: "ton/ha",
+    defaultPerHa: 35000,
+  },
   { id: "sorgo", label: "Sorgo", defaultYield: 9, unit: "ton/ha", defaultPerHa: 18000 },
   { id: "frijol", label: "Frijol", defaultYield: 2, unit: "ton/ha", defaultPerHa: 22000 },
   { id: "garbanzo", label: "Garbanzo", defaultYield: 2.4, unit: "ton/ha", defaultPerHa: 28000 },
-  { id: "maiz_amarillo", label: "Maíz amarillo", defaultYield: 11, unit: "ton/ha", defaultPerHa: 32000 },
+  {
+    id: "maiz_amarillo",
+    label: "Maíz amarillo",
+    defaultYield: 11,
+    unit: "ton/ha",
+    defaultPerHa: 32000,
+  },
 ] as const;
 
 export type CropId = (typeof CROPS)[number]["id"];
@@ -203,10 +215,7 @@ export function docIsComplete(status: string): boolean {
   return status === "recibido" || status === "validado" || status === "no_aplica";
 }
 
-export const DOC_CATALOG: Record<
-  SchemeId,
-  { id: string; label: string; required: boolean }[]
-> = {
+export const DOC_CATALOG: Record<SchemeId, { id: string; label: string; required: boolean }[]> = {
   financiamiento: [
     { id: "ine", label: "INE vigente", required: true },
     { id: "curp", label: "CURP", required: true },
@@ -350,7 +359,8 @@ export function rejectionReasonLabel(id: string | null | undefined): string {
 
 export function parseRejectionReason(raw: unknown): RejectionReasonId | null {
   const v = String(raw ?? "");
-  if (v === "credito" || v === "garantia" || v === "se_fue" || v === "superficie" || v === "otro") return v;
+  if (v === "credito" || v === "garantia" || v === "se_fue" || v === "superficie" || v === "otro")
+    return v;
   return null;
 }
 
@@ -358,4 +368,8 @@ export function parseRejectionKind(raw: unknown): RejectionKind | null {
   const v = String(raw ?? "");
   if (v === "total" || v === "parcial") return v;
   return null;
+}
+
+export function needsApproval(stage: string) {
+  return stage === "habilitado" || stage === "acopio";
 }

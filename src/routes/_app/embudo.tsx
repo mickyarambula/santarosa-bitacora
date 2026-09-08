@@ -1,3 +1,4 @@
+import { needsApproval } from "@/lib/catalog";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -78,7 +79,10 @@ function EmbudoPage() {
                   <p className="px-1 py-8 text-center text-xs text-subtle">Nadie aquí</p>
                 ) : (
                   items.map((p) => (
-                    <article key={p.id} className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]">
+                    <article
+                      key={p.id}
+                      className="rounded-lg bg-surface p-3 shadow-[var(--shadow-border)]"
+                    >
                       <Link
                         to="/productores/$id"
                         params={{ id: p.id }}
@@ -91,15 +95,24 @@ function EmbudoPage() {
                         {!agent ? ` · ${p.comisionistaName}` : ""}
                       </p>
                       {p.financingMxn ? (
-                        <p className="text-xs tabular text-primary">{compactMoney(p.financingMxn)}</p>
+                        <p className="text-xs tabular text-primary">
+                          {compactMoney(p.financingMxn)}
+                        </p>
                       ) : null}
                       {p.blocker ? <p className="mt-1 text-xs text-clay">{p.blocker}</p> : null}
                       <NativeSelect
                         className="mt-2 h-10 text-sm"
                         value={p.stage}
-                        onChange={(e) => move.mutate({ id: p.id, stage: e.target.value as StageId })}
+                        onChange={(e) =>
+                          move.mutate({ id: p.id, stage: e.target.value as StageId })
+                        }
                       >
-                        {STAGES.map((s) => (
+                        {STAGES.filter(
+                          (s) =>
+                            list.data?.profile.role === "gerente" ||
+                            (!needsApproval(s.id) && !needsApproval(p.stage)) ||
+                            s.id === p.stage,
+                        ).map((s) => (
                           <option key={s.id} value={s.id}>
                             {s.short}
                           </option>

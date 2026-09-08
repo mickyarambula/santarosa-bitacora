@@ -65,11 +65,25 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3">
           {NAV.map((item) => (
-            <NavLink key={item.to} to={item.to} label={item.label} icon={item.icon} pathname={pathname} dark />
+            <NavLink
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              icon={item.icon}
+              pathname={pathname}
+              dark
+            />
           ))}
           <div className="my-3 h-px bg-primary-fg/10" />
           {moreItems.map((item) => (
-            <NavLink key={item.to} to={item.to} label={item.label} icon={item.icon} pathname={pathname} dark />
+            <NavLink
+              key={item.to}
+              to={item.to}
+              label={item.label}
+              icon={item.icon}
+              pathname={pathname}
+              dark
+            />
           ))}
         </nav>
         <div className="mt-auto border-t border-primary-fg/10 p-4">
@@ -79,7 +93,9 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           <p className="mt-1 truncate font-medium">{profile.displayName}</p>
           {isGerente && names.length > 0 ? (
             <label className="mt-3 block">
-              <span className="text-[11px] uppercase tracking-wider text-sidebar-muted">Ver cartera de</span>
+              <span className="text-[11px] uppercase tracking-wider text-sidebar-muted">
+                Ver cartera de
+              </span>
               <select
                 className="mt-1 h-10 w-full rounded-md border-0 bg-primary-fg/10 px-2 text-sm text-primary-fg"
                 value={agent ?? ""}
@@ -138,9 +154,14 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         {agent ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-secondary px-4 py-2 text-sm md:px-8">
             <p>
-              {agent === MINE_SCOPE
-                ? "Viendo tu cartera — lo que capturaste tú."
-                : <>Viendo como <span className="font-medium">{agent}</span> — así se ve su bitácora.</>}
+              {agent === MINE_SCOPE ? (
+                "Viendo tu cartera — lo que capturaste tú."
+              ) : (
+                <>
+                  Cartera de <span className="font-medium">{agent}</span> — sigues usando tus
+                  permisos de gerencia.
+                </>
+              )}
             </p>
             <button
               type="button"

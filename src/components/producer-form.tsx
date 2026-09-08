@@ -23,7 +23,8 @@ import {
   type SchemeId,
   type StageId,
 } from "@/lib/catalog";
-import { listGroups } from "@/lib/crm";
+import { listGroups, listTeam } from "@/lib/crm";
+import { needsApproval } from "@/lib/catalog";
 import type { Producer, ProducerInput } from "@/lib/types";
 import { loanOf, money, num, qty, suggestedPerHa, volumeOf } from "@/lib/utils";
 import { useViewAs } from "@/lib/view-as";
@@ -53,6 +54,7 @@ const empty: ProducerInput = {
 
 function fromProducer(p: Producer): ProducerInput {
   return {
+    ownerUserId: p.ownerUserId,
     name: p.name,
     comisionistaName: p.comisionistaName,
     businessUnit: p.businessUnit,
@@ -65,7 +67,9 @@ function fromProducer(p: Producer): ProducerInput {
     hectares: p.hectares,
     yieldTonHa: p.yieldTonHa,
     financingMxn: p.financingMxn,
-    financingPerHa: p.financingPerHa || (p.hectares ? Math.round(p.financingMxn / p.hectares) : suggestedPerHa(p.crop)),
+    financingPerHa:
+      p.financingPerHa ||
+      (p.hectares ? Math.round(p.financingMxn / p.hectares) : suggestedPerHa(p.crop)),
     phone: p.phone ?? "",
     email: p.email ?? "",
     stage: p.stage,
@@ -97,12 +101,26 @@ export function ProducerForm({
   );
   const [inGroup, setInGroup] = useState(Boolean(initial?.groupId));
   const [groupPick, setGroupPick] = useState(initial?.groupId || "new");
-  const { agent } = useViewAs();
+  const { isGerente } = useViewAs();
+  const teamQ = useQuery({ queryKey: ["team"], queryFn: () => listTeam() });
+  const owners =
+    teamQ.data?.agents.filter((p) => p.status === "activo" || p.userId === initial?.ownerUserId) ??
+    [];
+  const defaultOwners = owners.filter((p) => p.displayName === defaultAgent);
+  const ownerUserId =
+    form.ownerUserId ??
+    (defaultAgent && defaultAgent !== teamQ.data?.me.displayName
+      ? defaultOwners.length === 1
+        ? defaultOwners[0]!.userId
+        : ""
+      : (teamQ.data?.me.userId ?? ""));
   const groupsQ = useQuery({
-    queryKey: ["groups", agent],
-    queryFn: () => listGroups({ data: { agent: agent || undefined } }),
+    queryKey: ["groups", "assignment"],
+    queryFn: () => listGroups({ data: {} }),
   });
-  const [rateTouched, setRateTouched] = useState(Boolean(initial && (initial.financingPerHa || initial.financingMxn)));
+  const [rateTouched, setRateTouched] = useState(
+    Boolean(initial && (initial.financingPerHa || initial.financingMxn)),
+  );
 
   const volume = useMemo(
     () => volumeOf(num(form.hectares), num(form.yieldTonHa)),
@@ -110,11 +128,7 @@ export function ProducerForm({
   );
   const suggestedRate = useMemo(() => suggestedPerHa(form.crop), [form.crop]);
   const perHa =
-    form.scheme === "financiamiento"
-      ? rateTouched
-        ? num(form.financingPerHa)
-        : suggestedRate
-      : 0;
+    form.scheme === "financiamiento" ? (rateTouched ? num(form.financingPerHa) : suggestedRate) : 0;
   const financing = form.scheme === "financiamiento" ? loanOf(num(form.hectares), perHa) : 0;
 
   function patch<K extends keyof ProducerInput>(key: K, value: ProducerInput[K]) {
@@ -128,6 +142,7 @@ export function ProducerForm({
         e.preventDefault();
         onSubmit({
           ...form,
+          ownerUserId,
           hectares: num(form.hectares),
           yieldTonHa: num(form.yieldTonHa),
           financingMxn: financing,
@@ -142,16 +157,49 @@ export function ProducerForm({
             inGroup && groupPick === "new"
               ? (form.newGroupName || "").trim() || suggestedGroupName(form.name)
               : null,
-          groupRole: inGroup ? form.groupRole ?? "familiar" : null,
+          groupRole: inGroup ? (form.groupRole ?? "familiar") : null,
         });
       }}
     >
       <Card>
         <CardHeader>
           <CardTitle>1. ¿Quién es?</CardTitle>
-          <CardDescription>Nombre, teléfono y dónde siembra. Con eso ya queda captado.</CardDescription>
+          <CardDescription>
+            Nombre, teléfono y dónde siembra. Con eso ya queda captado.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
+          {isGerente ? (
+            <Field label="Responsable de seguimiento">
+              <NativeSelect
+                value={ownerUserId}
+                onChange={(e) => patch("ownerUserId", e.target.value)}
+              >
+                <option value="">Elige una cuenta del equipo…</option>
+                {owners.map((p) => (
+                  <option key={p.userId} value={p.userId}>
+                    {p.displayName}
+                  </option>
+                ))}
+              </NativeSelect>
+              <span className="text-xs text-muted">
+                La ficha aparecerá en la cartera de esta persona. Tu captura queda en el historial.
+              </span>
+              {initial?.groupId && ownerUserId !== initial.ownerUserId ? (
+                <span className="text-sm text-rose">
+                  Se asignará todo el grupo y sus citas al nuevo responsable.
+                </span>
+              ) : null}
+            </Field>
+          ) : null}
+          {teamQ.error ? (
+            <p role="alert">
+              No se pudo cargar el responsable.{" "}
+              <button type="button" onClick={() => void teamQ.refetch()}>
+                Reintentar
+              </button>
+            </p>
+          ) : null}
           <Field label="Productor / razón social">
             <Input
               required
@@ -179,10 +227,7 @@ export function ProducerForm({
               />
             </Field>
             <Field label="Municipio">
-              <NativeSelect
-                value={form.zone}
-                onChange={(e) => patch("zone", e.target.value)}
-              >
+              <NativeSelect value={form.zone} onChange={(e) => patch("zone", e.target.value)}>
                 {ZONES.map((z) => (
                   <option key={z} value={z}>
                     {z}
@@ -234,7 +279,7 @@ export function ProducerForm({
                 <NativeSelect value={groupPick} onChange={(e) => setGroupPick(e.target.value)}>
                   <option value="new">Nuevo grupo</option>
                   {(groupsQ.data?.groups ?? [])
-                    .filter((g) => g.id !== "new")
+                    .filter((g) => g.ownerUserId === ownerUserId || g.id === initial?.groupId)
                     .map((g) => (
                       <option key={g.id} value={g.id}>
                         {g.name}
@@ -323,7 +368,9 @@ export function ProducerForm({
             </Field>
           </div>
           <div className="rounded-lg bg-primary/8 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-wider text-primary">Volumen estimado</p>
+            <p className="text-xs font-medium uppercase tracking-wider text-primary">
+              Volumen estimado
+            </p>
             <p className="font-display text-3xl font-medium tabular tracking-tight">
               {qty(volume, 1)} <span className="text-lg text-muted">ton</span>
             </p>
@@ -379,7 +426,9 @@ export function ProducerForm({
                 <p className="text-xs font-medium uppercase tracking-wider text-primary">
                   Préstamo estimado · {qty(num(form.hectares), 1)} ha × {money(perHa)}
                 </p>
-                <p className="font-display text-3xl font-medium tabular tracking-tight">{money(financing)}</p>
+                <p className="font-display text-3xl font-medium tabular tracking-tight">
+                  {money(financing)}
+                </p>
               </div>
             </div>
           ) : (
@@ -393,7 +442,9 @@ export function ProducerForm({
       <Card>
         <CardHeader>
           <CardTitle>4. ¿En qué va y qué falta?</CardTitle>
-          <CardDescription>La papelería siempre se atora. Anota qué le falta desde ahora.</CardDescription>
+          <CardDescription>
+            La papelería siempre se atora. Anota qué le falta desde ahora.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
           <Field label="Etapa">
@@ -401,7 +452,9 @@ export function ProducerForm({
               value={form.stage}
               onChange={(e) => patch("stage", e.target.value as StageId)}
             >
-              {STAGES.map((s) => (
+              {STAGES.filter(
+                (s) => !needsApproval(s.id) || (initial && isGerente) || s.id === initial?.stage,
+              ).map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>
@@ -422,19 +475,22 @@ export function ProducerForm({
               placeholder="Visitarlo el jueves, recoger papeles en oficina…"
             />
           </Field>
-          {initial ? null : defaultAgent ? (
-            <Field label="Comisionista">
-              <Input
-                value={form.comisionistaName ?? defaultAgent}
-                onChange={(e) => patch("comisionistaName", e.target.value)}
-              />
-            </Field>
+          {initial && initial.scheme !== form.scheme ? (
+            <p className="text-sm text-muted">
+              Los documentos comunes conservarán su avance. Los del esquema anterior quedan
+              guardados; los requisitos nuevos empezarán pendientes.
+            </p>
           ) : null}
         </CardContent>
       </Card>
 
       <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-bg p-3 md:sticky md:bottom-0 md:inset-x-auto md:z-10 md:rounded-xl md:border md:bg-surface">
-        <Button type="submit" size="xl" className="w-full" disabled={pending || !form.name.trim()}>
+        <Button
+          type="submit"
+          size="xl"
+          className="w-full"
+          disabled={pending || !form.name.trim() || !ownerUserId}
+        >
           {pending ? "Guardando…" : submitLabel}
         </Button>
       </div>
@@ -480,4 +536,3 @@ function Toggle({
     </button>
   );
 }
-

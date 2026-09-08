@@ -1,4 +1,4 @@
-import { APP_TZ } from "@/lib/datetime";
+import { APP_TZ } from "./datetime.ts";
 
 export function visitConfirmMessage(opts: {
   producerName: string;
@@ -75,17 +75,21 @@ export function inviteToCloseMessage(opts: {
   zone?: string | null;
   stageLabel?: string | null;
 }): string {
-  const extra = [opts.crop, opts.hectares ? `${opts.hectares} ha` : null, opts.zone, opts.stageLabel]
+  const extra = [
+    opts.crop,
+    opts.hectares ? `${opts.hectares} ha` : null,
+    opts.zone,
+    opts.stageLabel,
+  ]
     .filter(Boolean)
     .join(", ");
   return `Hola ${opts.personName}, soy ${opts.agentName} de Almacenes Santa Rosa. Necesito apoyo para cerrar con ${opts.producerName}${extra ? ` (${extra})` : ""}. ¿Cuándo podemos ir o hablarle?`;
 }
 
-export function officeDigestMessage(opts: {
-  personName: string;
-  lines: string[];
-}): string {
-  const body = opts.lines.length ? opts.lines.map((l) => `• ${l}`).join("\n") : "Hoy no hay pendientes fuertes.";
+export function officeDigestMessage(opts: { personName: string; lines: string[] }): string {
+  const body = opts.lines.length
+    ? opts.lines.map((l) => `• ${l}`).join("\n")
+    : "Hoy no hay pendientes fuertes.";
   return `Hola ${opts.personName}, le mando el avance de Almacenes Santa Rosa:\n\n${body}\n\nQuedo al pendiente.`;
 }
 
@@ -105,8 +109,19 @@ export function producerBroadcastMessage(opts: {
   return `Hola ${opts.producerName}, le escribe ${opts.agentName} de Almacenes Santa Rosa.\n\n${opts.body}`;
 }
 
-export function teamAnnouncementShare(opts: { title: string; body: string; author: string }): string {
-  return [`Aviso de gerencia — Almacenes Santa Rosa`, opts.title, "", opts.body, "", `— ${opts.author}`]
+export function teamAnnouncementShare(opts: {
+  title: string;
+  body: string;
+  author: string;
+}): string {
+  return [
+    `Aviso de gerencia — Almacenes Santa Rosa`,
+    opts.title,
+    "",
+    opts.body,
+    "",
+    `— ${opts.author}`,
+  ]
     .filter((l, i, a) => !(l === "" && a[i - 1] === ""))
     .join("\n");
 }

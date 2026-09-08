@@ -64,6 +64,7 @@ export type Producer = {
 };
 
 export type DocumentItem = {
+  missing?: boolean;
   id: string;
   producerId: string;
   docType: string;
@@ -109,6 +110,7 @@ export type TouchItem = {
 };
 
 export type ProducerInput = {
+  ownerUserId?: string;
   name: string;
   comisionistaName?: string;
   businessUnit: BusinessUnit;
@@ -147,7 +149,13 @@ export type AttentionItem = {
   producerId: string;
 };
 
-export type StageCount = { stage: StageId; count: number; hectares: number; volume: number; financing: number };
+export type StageCount = {
+  stage: StageId;
+  count: number;
+  hectares: number;
+  volume: number;
+  financing: number;
+};
 
 export type AgentCount = {
   name: string;
@@ -255,4 +263,3 @@ export type OfficePing = {
   message: string;
   createdAt: string;
 };
-

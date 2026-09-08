@@ -38,6 +38,7 @@ import {
 } from "@/lib/crm";
 import type { DocStatus, StageId } from "@/lib/catalog";
 import { compactMoney, formatPhone, money, qty, whatsappHref } from "@/lib/utils";
+import { needsApproval } from "@/lib/catalog";
 import { formatAppDateTime } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_app/productores/$id")({
@@ -140,7 +141,9 @@ function ProducerDetailPage() {
   }
 
   const { producer: p, documents, progress, visits, activity, touches, group, roster } = q.data;
-  const missing = documents.filter((d) => d.required && d.status === "pendiente");
+  const missing = documents.filter(
+    (d) => d.required && (d.status === "pendiente" || d.status === "no_hizo"),
+  );
   const waDocs = whatsappHref(
     p.phone,
     `Hola ${p.name}, soy ${p.comisionistaName} de Almacenes Santa Rosa. Para seguir con el ciclo 26-27 nos faltan estos documentos:\n\n${missing
@@ -173,7 +176,9 @@ function ProducerDetailPage() {
             {p.comisionistaName}
             {p.groupName ? ` · ${p.groupName}` : ""}
           </p>
-          {p.phone ? <p className="mt-1 text-sm tabular text-muted">{formatPhone(p.phone)}</p> : null}
+          {p.phone ? (
+            <p className="mt-1 text-sm tabular text-muted">{formatPhone(p.phone)}</p>
+          ) : null}
           {p.email ? <p className="mt-1 text-sm text-muted">{p.email}</p> : null}
         </div>
         <OfficeInvite
@@ -204,11 +209,17 @@ function ProducerDetailPage() {
         />
       </div>
 
-      <RejectionPanel
-        producer={p}
-        pending={rejectMut.isPending}
-        onSave={(data) => rejectMut.mutate({ data: { id: p.id, ...data } })}
-      />
+      {q.data.profile.role === "gerente" ? (
+        <RejectionPanel
+          producer={p}
+          pending={rejectMut.isPending}
+          onSave={(data) => rejectMut.mutate({ data: { id: p.id, ...data } })}
+        />
+      ) : p.rejectionKind ? (
+        <p className="rounded-lg bg-secondary p-4">
+          Dictamen de gerencia: rechazo {p.rejectionKind}. {p.rejectionNotes}
+        </p>
+      ) : null}
 
       {group ? (
         <Card>
@@ -222,34 +233,38 @@ function ProducerDetailPage() {
               papelería.
             </p>
             <ul className="grid gap-2">
-              {(roster?.length ? roster : group.producers.map((m) => ({ producer: m, progress: { total: 0, required: 0, done: 0, requiredDone: 0 } }))).map(
-                (row) => {
-                  const m = row.producer;
-                  const left = row.progress.required - row.progress.requiredDone;
-                  return (
-                    <li key={m.id}>
-                      <Link
-                        to="/productores/$id"
-                        params={{ id: m.id }}
-                        className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary"
-                      >
-                        <span>
-                          <span className="font-medium">{m.name}</span>
-                          <span className="text-muted">
-                            {" "}
-                            · {groupRoleLabel(m.groupRole)}
-                            {m.id === p.id ? " · este" : ""}
-                          </span>
+              {(roster?.length
+                ? roster
+                : group.producers.map((m) => ({
+                    producer: m,
+                    progress: { total: 0, required: 0, done: 0, requiredDone: 0 },
+                  }))
+              ).map((row) => {
+                const m = row.producer;
+                const left = row.progress.required - row.progress.requiredDone;
+                return (
+                  <li key={m.id}>
+                    <Link
+                      to="/productores/$id"
+                      params={{ id: m.id }}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-secondary"
+                    >
+                      <span>
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-muted">
+                          {" "}
+                          · {groupRoleLabel(m.groupRole)}
+                          {m.id === p.id ? " · este" : ""}
                         </span>
-                        <span className="text-xs text-muted">
-                          {qty(m.hectares, 0)} ha
-                          {left > 0 ? ` · faltan ${left} papeles` : " · papeles listos"}
-                        </span>
-                      </Link>
-                    </li>
-                  );
-                },
-              )}
+                      </span>
+                      <span className="text-xs text-muted">
+                        {qty(m.hectares, 0)} ha
+                        {left > 0 ? ` · faltan ${left} papeles` : " · papeles listos"}
+                      </span>
+                    </Link>
+                  </li>
+                );
+              })}
             </ul>
           </CardContent>
         </Card>
@@ -279,7 +294,12 @@ function ProducerDetailPage() {
               value={p.stage}
               onChange={(e) => stageMut.mutate(e.target.value as StageId)}
             >
-              {STAGES.map((s) => (
+              {STAGES.filter(
+                (s) =>
+                  q.data.profile.role === "gerente" ||
+                  (!needsApproval(s.id) && !needsApproval(p.stage)) ||
+                  s.id === p.stage,
+              ).map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.label}
                 </option>
@@ -304,6 +324,7 @@ function ProducerDetailPage() {
         <CardContent className="p-5">
           <DocsChecklist
             documents={documents}
+            canValidate={q.data.profile.role === "gerente"}
             pendingId={pendingDoc}
             onChange={(docId, status) => docMut.mutate({ id: docId, status })}
           />
@@ -365,7 +386,10 @@ function ProducerDetailPage() {
                       value={v.status}
                       onChange={(e) =>
                         visitStatusMut.mutate({
-                          data: { id: v.id, status: e.target.value as (typeof VISIT_STATUS)[number]["id"] },
+                          data: {
+                            id: v.id,
+                            status: e.target.value as (typeof VISIT_STATUS)[number]["id"],
+                          },
                         })
                       }
                     >
@@ -409,11 +433,12 @@ function ProducerDetailPage() {
           <h2 className="mb-3 font-display text-lg font-medium">Bitácora</h2>
           <ol className="grid gap-2">
             {activity.map((a) => (
-              <li key={a.id} className="rounded-lg bg-surface px-4 py-3 text-sm shadow-[var(--shadow-border)]">
+              <li
+                key={a.id}
+                className="rounded-lg bg-surface px-4 py-3 text-sm shadow-[var(--shadow-border)]"
+              >
                 <p>{a.message}</p>
-                <p className="mt-1 text-xs text-subtle">
-                  {new Date(a.createdAt).toLocaleString("es-MX")}
-                </p>
+                <p className="mt-1 text-xs text-subtle">{formatAppDateTime(a.createdAt)}</p>
               </li>
             ))}
           </ol>
@@ -425,14 +450,17 @@ function ProducerDetailPage() {
           variant="ghost"
           className="text-destructive"
           onClick={() => {
-            if (confirm(`¿Eliminar a ${p.name}? Esta acción no se puede deshacer.`)) delMut.mutate();
+            if (confirm(`¿Eliminar a ${p.name}? Esta acción no se puede deshacer.`))
+              delMut.mutate();
           }}
         >
           <Trash2 className="size-4" />
           Eliminar
         </Button>
       </div>
-      <p className="sr-only">{money(p.financingMxn)} {docsForScheme(p.scheme).length}</p>
+      <p className="sr-only">
+        {money(p.financingMxn)} {docsForScheme(p.scheme).length}
+      </p>
     </div>
   );
 }

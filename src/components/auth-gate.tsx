@@ -32,16 +32,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (isPending) return <Splash />;
   if (!user) return <RedirectToSignIn />;
-  if (boot.isPending || !boot.data) return <Splash />;
   if (boot.error) {
     const msg = (boot.error as Error).message;
     if (msg === "Unauthorized") return <RedirectToSignIn />;
     return (
       <div className="grid min-h-dvh place-items-center bg-bg p-6 text-center">
-        <p className="max-w-sm text-muted">{msg}</p>
+        <div className="max-w-sm space-y-4">
+          <p className="text-muted">No se pudo abrir la bitácora. {msg}</p>
+          <Button onClick={() => void boot.refetch()}>Volver a intentar</Button>
+        </div>
       </div>
     );
   }
+  if (boot.isPending || !boot.data) return <Splash />;
 
   if (boot.data.profile.status === "bloqueado") {
     return <LockedScreen />;
@@ -63,8 +66,8 @@ function LockedScreen() {
           Esta cuenta no está autorizada
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
-          Gerencia tiene el candado puesto, o inhabilitó esta cuenta. Pide la clave del equipo o
-          que te habiliten desde Equipo.
+          Pide a gerencia que habilite tu cuenta desde Equipo. Volver a escribir la clave del equipo
+          no reactiva una cuenta bloqueada.
         </p>
         <Button
           className="mt-6"
