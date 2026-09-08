@@ -111,6 +111,12 @@ export const assignPortfolio = createServerFn({ method: "POST" })
           `Hay ${displaced.length} tareas cuyo responsable perdería acceso. Confirma trasladarlas a la persona de atención.`,
         );
       for (const m of members) {
+        const previousAttention =
+          (
+            await sql<{
+              display_name: string;
+            }>`select display_name from profiles where user_id=${m.attention_user_id}`
+          )[0]?.display_name ?? "sin dato";
         await sql`update producers set portfolio_kind=${data.portfolioKind},owner_user_id=${ownerId ?? null},comisionista_name=${name},attention_user_id=${data.attentionUserId},updated_at=now() where id=${m.id}`;
         await sql`update visits set owner_user_id=${ownerId ?? null} where producer_id=${m.id}`;
         await writeAudit(sql, me, "productor", m.id, "asignacion", m, {
@@ -124,7 +130,7 @@ export const assignPortfolio = createServerFn({ method: "POST" })
           m.id,
           me.userId,
           "asignacion",
-          `Cartera: ${p.comisionistaName} → ${name}. Atención: ${m.attention_user_id ?? "sin dato"} → ${attentionName}. Motivo: ${data.reason}.`,
+          `Cartera: ${p.comisionistaName} → ${name}. Atención: ${previousAttention} → ${attentionName}. Motivo: ${data.reason}.`,
         );
       }
       if (changed && p.groupId)

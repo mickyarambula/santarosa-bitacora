@@ -12,6 +12,9 @@ const labels: Record<string, string> = {
   comunicacion: "Comunicaciones",
   tarea: "Tareas",
   documento: "Papelería",
+  papel: "Papelería",
+  responsable: "Responsables",
+  fusion: "Fichas unificadas",
   etapa: "Etapas",
   dictamen: "Dictámenes",
   edicion: "Ediciones",
@@ -21,20 +24,14 @@ const labels: Record<string, string> = {
   grupo: "Grupos",
   proxima_accion: "Seguimiento anterior",
 };
-export function ProducerHistory({
-  producerId,
-  revision,
-}: {
-  producerId: string;
-  revision: string;
-}) {
+export function ProducerHistory({ producerId }: { producerId: string }) {
   const [page, setPage] = useState(0),
     [kind, setKind] = useState(""),
     [search, setSearch] = useState(""),
     [q, setQ] = useState(""),
     [opened, setOpened] = useState(false);
   const query = useQuery({
-    queryKey: ["producer-history", producerId, revision, page, kind, q],
+    queryKey: ["producer", producerId, "history", page, kind, q],
     queryFn: () => listProducerHistory({ data: { producerId, page, kind, q } }),
     enabled: opened,
   });

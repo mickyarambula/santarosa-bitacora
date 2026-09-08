@@ -437,7 +437,7 @@ function ProducerDetailPage() {
           ) : null}
         </Card>
       </fieldset>
-      <ProducerHistory producerId={p.id} revision={p.updatedAt} />
+      <ProducerHistory producerId={p.id} />
 
       <ProducerArchive
         key={p.archivedAt ?? "active"}
