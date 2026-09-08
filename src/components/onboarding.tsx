@@ -40,8 +40,8 @@ export function Onboarding({ profile }: { profile: Profile }) {
         className="w-full max-w-md rounded-xl bg-surface p-5 shadow-lg sm:p-6"
       >
         <p className="text-xs font-medium uppercase tracking-wider text-subtle">
-          {profile.role === "gerente" ? "Para gerencia y comisionistas" : "Cómo se usa"} · {step + 1} de{" "}
-          {ONBOARDING_STEPS.length}
+          {profile.role === "gerente" ? "Para gerencia y comisionistas" : "Cómo se usa"} ·{" "}
+          {step + 1} de {ONBOARDING_STEPS.length}
         </p>
         <h2 id="onboard-title" className="mt-2 font-display text-2xl font-medium tracking-tight">
           {current.title}
@@ -49,8 +49,8 @@ export function Onboarding({ profile }: { profile: Profile }) {
         <p className="mt-2 text-sm leading-relaxed text-muted">{current.body}</p>
         {profile.role === "gerente" && step === 0 ? (
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Tú ves a todo el equipo. El de ventas, si también captura, súbelo a gerencia: no pierde
-            su cartera.
+            Tú supervisas al equipo y puedes llevar cartera propia. Oficina revisa expedientes
+            asignados; administrar accesos requiere un permiso adicional.
           </p>
         ) : null}
         <div className="mt-4 flex gap-1.5" aria-hidden>
@@ -62,7 +62,11 @@ export function Onboarding({ profile }: { profile: Profile }) {
           ))}
         </div>
         <div className="mt-5 flex flex-wrap items-center justify-between gap-2">
-          <button type="button" className="min-h-11 text-sm text-muted underline-offset-4 hover:underline" onClick={done}>
+          <button
+            type="button"
+            className="min-h-11 text-sm text-muted underline-offset-4 hover:underline"
+            onClick={done}
+          >
             Saltar
           </button>
           <div className="flex gap-2">

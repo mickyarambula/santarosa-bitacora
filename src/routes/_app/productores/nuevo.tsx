@@ -38,15 +38,17 @@ function NuevoProductor() {
         <h1 className="font-display text-3xl font-medium tracking-tight">Capturar productor</h1>
         <p className="mt-1 text-sm text-muted">
           {captureName
-            ? `Queda a nombre de ${captureName}. Nombre y cultivo bastan.`
-            : "Llena lo que sepas. Nombre y cultivo bastan; lo demás se puede completar después."}
+            ? `Queda a nombre de ${captureName}. Confirma los datos básicos y guarda.`
+            : "Llena lo que sepas. Confirma los datos básicos; lo demás se puede completar después."}
         </p>
       </header>
       <ProducerForm
         defaultAgent={captureName || boot.data?.profile.displayName}
         submitLabel="Guardar productor"
         pending={save.isPending}
-        onSubmit={(data) => save.mutate({ data })}
+        onSubmit={async (data) => {
+          await save.mutateAsync({ data });
+        }}
       />
     </div>
   );

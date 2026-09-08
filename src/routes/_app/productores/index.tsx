@@ -1,3 +1,4 @@
+import { ArchivedProducers } from "@/components/producer-archive";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -150,10 +151,19 @@ function ProductoresPage() {
 
       {list.data?.producers.length ? (
         <KpiStrip
-          producers={list.data.producers.filter((p) => p.rejectionKind !== "total").length}
-          hectares={list.data.producers.filter((p) => p.rejectionKind !== "total").reduce((s, p) => s + p.hectares, 0)}
-          volume={list.data.producers.filter((p) => p.rejectionKind !== "total").reduce((s, p) => s + p.volumeTon, 0)}
-          financing={list.data.producers.filter((p) => p.rejectionKind !== "total").reduce((s, p) => s + p.financingMxn, 0)}
+          producers={
+            list.data.producers.filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado")
+              .length
+          }
+          hectares={list.data.producers
+            .filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado")
+            .reduce((s, p) => s + p.hectares, 0)}
+          volume={list.data.producers
+            .filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado")
+            .reduce((s, p) => s + p.volumeTon, 0)}
+          financing={list.data.producers
+            .filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado")
+            .reduce((s, p) => s + p.financingMxn, 0)}
         />
       ) : null}
 
@@ -180,6 +190,7 @@ function ProductoresPage() {
           }
         />
       )}
+      <ArchivedProducers />
     </div>
   );
 }

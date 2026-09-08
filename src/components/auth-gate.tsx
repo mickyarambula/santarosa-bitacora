@@ -1,3 +1,4 @@
+import { OfficeWorkspace } from "@/components/office-workspace";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -19,13 +20,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
     enabled: Boolean(user),
     queryFn: () => {
       let accessCode: string | null = null;
+      let invitationToken: string | null = null;
       try {
         accessCode = sessionStorage.getItem(CODE_KEY);
+        invitationToken = sessionStorage.getItem("sr-invitation-token");
       } catch {
         /* ignore */
       }
       return bootstrap({
-        data: { displayName: user?.displayName ?? null, accessCode },
+        data: { displayName: user?.displayName ?? null, accessCode, invitationToken },
       });
     },
   });
@@ -55,6 +58,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
+  if (boot.data.profile.role === "oficina") return <OfficeWorkspace profile={boot.data.profile} />;
   return (
     <ViewAsProvider profile={boot.data.profile}>
       <AppShell profile={boot.data.profile}>{children}</AppShell>

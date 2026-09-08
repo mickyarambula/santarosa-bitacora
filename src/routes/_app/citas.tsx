@@ -1,17 +1,16 @@
+import { NextActionsPanel } from "@/components/next-actions-panel";
+import { VisitStatusControl } from "@/components/visit-status-control";
 import { RescheduleVisit } from "@/components/reschedule-visit";
 import { Link, createFileRoute } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { toast } from "sonner";
 import { CalendarDays } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { OfficeInvite } from "@/components/office-invite";
 import { PhoneActions } from "@/components/phone-actions";
 import { ScheduleVisitButton } from "@/components/schedule-visit";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { VISIT_STATUS } from "@/lib/catalog";
-import { listVisits, setVisitStatus } from "@/lib/crm";
+import { listVisits } from "@/lib/crm";
 import { formatAppDay, formatAppTime } from "@/lib/datetime";
 import { visitConfirmMessage } from "@/lib/reminders";
 import type { Visit } from "@/lib/types";
@@ -20,21 +19,11 @@ import { useViewAs } from "@/lib/view-as";
 export const Route = createFileRoute("/_app/citas")({ component: CitasPage });
 
 function CitasPage() {
-  const qc = useQueryClient();
   const { agent, agentLabel } = useViewAs();
   const [range, setRange] = useState<"hoy" | "semana" | "todas">("semana");
   const q = useQuery({
     queryKey: ["visits", range, agent],
     queryFn: () => listVisits({ data: { range, agent: agent || undefined } }),
-  });
-  const mut = useMutation({
-    mutationFn: setVisitStatus,
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ["visits"] });
-      void qc.invalidateQueries({ queryKey: ["dashboard"] });
-      void qc.invalidateQueries({ queryKey: ["producer"] });
-    },
-    onError: (e: Error) => toast.error(e.message),
   });
 
   const visits = q.data?.visits ?? [];
@@ -44,7 +33,7 @@ function CitasPage() {
     <div className="mx-auto max-w-3xl space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="font-display text-3xl font-medium tracking-tight">Citas</h1>
+          <h1 className="font-display text-3xl font-medium tracking-tight">Agenda</h1>
           <p className="text-sm text-muted">
             {agentLabel
               ? `Agenda de ${agentLabel}.`
@@ -77,6 +66,7 @@ function CitasPage() {
           </div>
         </div>
       </header>
+      <NextActionsPanel agent={agent} />
 
       {q.isPending ? (
         <Skeleton className="h-48" />
@@ -121,24 +111,7 @@ function CitasPage() {
                         </p>
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
-                        <NativeSelect
-                          className="h-10 w-36"
-                          value={v.status}
-                          onChange={(e) =>
-                            mut.mutate({
-                              data: {
-                                id: v.id,
-                                status: e.target.value as (typeof VISIT_STATUS)[number]["id"],
-                              },
-                            })
-                          }
-                        >
-                          {VISIT_STATUS.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {s.label}
-                            </option>
-                          ))}
-                        </NativeSelect>
+                        <VisitStatusControl visit={v} />
                         <RescheduleVisit visit={v} />
                         {v.status === "programada" && Date.parse(v.scheduledAt) < Date.now() ? (
                           <span className="text-sm text-clay">

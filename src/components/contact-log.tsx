@@ -13,6 +13,8 @@ import {
 import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { CHANNELS, OUTCOMES, channelLabel, outcomeLabel } from "@/lib/catalog";
+import { NextAction } from "./next-action";
+import { formatAppDateTime } from "@/lib/datetime";
 import { createTouch } from "@/lib/crm";
 import type { TouchItem } from "@/lib/types";
 import { cn, mailtoHref, telHref, whatsappHref } from "@/lib/utils";
@@ -35,14 +37,15 @@ export function ContactLog({
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [channel, setChannel] = useState("llamada");
-  const [outcome, setOutcome] = useState("contesto");
+  const [outcome, setOutcome] = useState("");
+  const [saved, setSaved] = useState(false);
   const [summary, setSummary] = useState("");
 
   const log = useMutation({
     mutationFn: createTouch,
     onSuccess: () => {
       toast.success("Quedó en la bitácora.");
-      setOpen(false);
+      setSaved(true);
       setSummary("");
       void qc.invalidateQueries({ queryKey: ["producer", producerId] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
@@ -51,7 +54,10 @@ export function ContactLog({
   });
 
   function quick(ch: string) {
-    log.mutate({ data: { producerId, channel: ch } });
+    setChannel(ch);
+    setOutcome("");
+    setSaved(false);
+    setOpen(true);
   }
 
   const tel = telHref(phone);
@@ -66,10 +72,7 @@ export function ContactLog({
       <div className="flex flex-wrap gap-2">
         {tel ? (
           <Button asChild variant="outline">
-            <a
-              href={tel}
-              onClick={() => quick("llamada")}
-            >
+            <a href={tel} onClick={() => quick("llamada")}>
               <Phone className="size-4" />
               Llamar
             </a>
@@ -91,9 +94,17 @@ export function ContactLog({
             </a>
           </Button>
         ) : null}
-        <Button type="button" variant="wheat" onClick={() => setOpen(true)}>
+        <Button
+          type="button"
+          variant="wheat"
+          onClick={() => {
+            setSaved(false);
+            setOutcome("");
+            setOpen(true);
+          }}
+        >
           <Plus className="size-4" />
-          Registrar contacto
+          Registrar resultado
         </Button>
       </div>
       {!tel && !wa && !mail ? (
@@ -101,25 +112,23 @@ export function ContactLog({
       ) : null}
 
       {touches.length ? (
-        <ol className="grid gap-2">
-          {touches.map((t) => (
-            <li key={t.id} className="rounded-lg border border-border px-3 py-2 text-sm">
-              <p className="font-medium">
-                {channelLabel(t.channel)}
-                {t.outcome ? ` · ${outcomeLabel(t.outcome)}` : ""}
-              </p>
-              {t.summary ? <p className="text-muted">{t.summary}</p> : null}
-              <p className="mt-0.5 text-xs text-subtle">
-                {new Date(t.happenedAt).toLocaleString("es-MX", {
-                  day: "numeric",
-                  month: "short",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </p>
-            </li>
-          ))}
-        </ol>
+        <details>
+          <summary className="cursor-pointer text-sm text-muted">
+            Últimos contactos ({touches.length})
+          </summary>
+          <ol className="grid gap-2">
+            {touches.map((t) => (
+              <li key={t.id} className="rounded-lg border border-border px-3 py-2 text-sm">
+                <p className="font-medium">
+                  {channelLabel(t.channel)}
+                  {t.outcome ? ` · ${outcomeLabel(t.outcome)}` : ""}
+                </p>
+                {t.summary ? <p className="text-muted">{t.summary}</p> : null}
+                <p className="mt-0.5 text-xs text-subtle">{formatAppDateTime(t.happenedAt)}</p>
+              </li>
+            ))}
+          </ol>
+        </details>
       ) : (
         <p className="text-sm text-muted">
           Aquí va cada llamada, WhatsApp, mensaje o correo. Así se ve cómo va el trato.
@@ -129,63 +138,84 @@ export function ContactLog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Registrar contacto</DialogTitle>
+            <DialogTitle>
+              {saved ? "¿Qué sigue con este productor?" : "Registrar resultado"}
+            </DialogTitle>
             <DialogDescription>
-              Llamada, WhatsApp, mensaje o correo. Queda en la ficha aunque el productor no tenga
-              app.
+              Abrir el teléfono o WhatsApp no registra un contacto. Guarda únicamente la gestión
+              realizada.
             </DialogDescription>
           </DialogHeader>
-          <form
-            className="grid gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              log.mutate({
-                data: { producerId, channel, outcome, summary: summary.trim() || null },
-              });
-            }}
-          >
-            <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Canal</span>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {CHANNELS.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => setChannel(c.id)}
-                    className={cn(
-                      "min-h-11 rounded-lg border px-3 text-sm font-medium",
-                      channel === c.id
-                        ? "border-primary bg-primary/8"
-                        : "border-border bg-bg hover:bg-secondary",
-                    )}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-sm font-medium">¿Cómo quedó?</span>
-              <NativeSelect value={outcome} onChange={(e) => setOutcome(e.target.value)}>
-                {OUTCOMES.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.label}
-                  </option>
-                ))}
-              </NativeSelect>
-            </label>
-            <label className="grid gap-1.5">
-              <span className="text-sm font-medium">Nota (opcional)</span>
-              <Textarea
-                value={summary}
-                onChange={(e) => setSummary(e.target.value)}
-                placeholder="Quedó de traer el predial el jueves…"
-              />
-            </label>
-            <Button type="submit" disabled={log.isPending}>
-              {log.isPending ? "Guardando…" : "Guardar en la bitácora"}
-            </Button>
-          </form>
+          {saved ? (
+            <>
+              <p className="text-sm">Resultado guardado. Puedes acordar aquí el siguiente paso.</p>
+              <NextAction producerId={producerId} embedded />
+              <Button variant="outline" onClick={() => setOpen(false)}>
+                Terminar
+              </Button>
+            </>
+          ) : (
+            <form
+              className="grid gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                log.mutate({
+                  data: { producerId, channel, outcome, summary: summary.trim() || null },
+                });
+              }}
+            >
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">Canal</span>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {CHANNELS.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setChannel(c.id)}
+                      className={cn(
+                        "min-h-11 rounded-lg border px-3 text-sm font-medium",
+                        channel === c.id
+                          ? "border-primary bg-primary/8"
+                          : "border-border bg-bg hover:bg-secondary",
+                      )}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">¿Cómo quedó?</span>
+                <NativeSelect
+                  aria-label="¿Cómo quedó?"
+                  required
+                  value={outcome}
+                  onChange={(e) => setOutcome(e.target.value)}
+                >
+                  <option value="">Elige qué pasó</option>
+                  {OUTCOMES.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">Nota (opcional)</span>
+                <Textarea
+                  value={summary}
+                  onChange={(e) => setSummary(e.target.value)}
+                  placeholder="Quedó de traer el predial el jueves…"
+                />
+              </label>
+              <Button type="submit" disabled={log.isPending || !outcome}>
+                {log.isPending ? "Guardando…" : "Guardar en la bitácora"}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+                No se realizó · cerrar sin registrar
+              </Button>
+            </form>
+          )}
         </DialogContent>
       </Dialog>
     </div>

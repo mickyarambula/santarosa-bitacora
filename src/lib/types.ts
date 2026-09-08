@@ -11,10 +11,12 @@ import type {
   VisitStatus,
 } from "./catalog";
 
-export type Role = "gerente" | "comisionista";
+export type Role = "gerente" | "comisionista" | "oficina";
 export type AccountStatus = "activo" | "bloqueado";
 
 export type Profile = {
+  accessAdmin?: boolean;
+  officeOwnerIds?: string[];
   duplicateReview?: boolean;
   mergedIntoUserId?: string | null;
   mergedIntoEmail?: string | null;
@@ -27,6 +29,11 @@ export type Profile = {
 };
 
 export type Producer = {
+  closeKind?: string | null;
+  closeReason?: string | null;
+  archivedAt?: string | null;
+  archiveReason?: string | null;
+  stageEnteredAt?: string;
   id: string;
   ownerUserId: string;
   comisionistaName: string;
@@ -79,6 +86,7 @@ export type DocumentItem = {
 };
 
 export type Visit = {
+  outcome?: string | null;
   id: string;
   producerId: string;
   producerName: string;
@@ -162,6 +170,7 @@ export type StageCount = {
 };
 
 export type AgentCount = {
+  userId?: string;
   name: string;
   count: number;
   hectares: number;

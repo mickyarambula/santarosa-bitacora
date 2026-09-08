@@ -1,3 +1,5 @@
+import { TeamInvitations } from "@/components/team-invitations";
+import { RolePermissions } from "@/components/role-permissions";
 import { AccountMerge } from "@/components/account-merge";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +21,6 @@ import {
 } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  deleteMember,
   deleteOfficePerson,
   getCartera,
   getLock,
@@ -85,8 +86,9 @@ function EquipoPage() {
       </header>
 
       <CarteraList />
+      {me.accessAdmin ? <TeamInvitations /> : null}
 
-      {me.role === "gerente" ? (
+      {me.accessAdmin ? (
         <>
           <AccountMerge members={agents} actorId={me.userId} />
           <details>
@@ -98,7 +100,7 @@ function EquipoPage() {
         </>
       ) : null}
 
-      {me.role === "gerente" ? <LockPanel /> : null}
+      {me.accessAdmin ? <LockPanel /> : null}
 
       <OfficeDesk canEdit={me.role === "gerente"} />
 
@@ -150,7 +152,7 @@ function EquipoPage() {
                     ) : null}
                   </td>
                   <td className="px-4 py-3">
-                    {me.role === "gerente" ? (
+                    {me.accessAdmin ? (
                       <NativeSelect
                         className="h-10 w-52"
                         value={a.role}
@@ -164,7 +166,7 @@ function EquipoPage() {
                                   `¿Dar gerencia a ${a.displayName}? Va a ver a todo el equipo y sigue llevando su propia cartera. No pierde lo que ya capturó.`,
                                 )
                               : window.confirm(
-                                  `¿Dejar a ${a.displayName} como comisionista? Solo verá lo suyo.`,
+                                  `¿Cambiar a ${a.displayName} a ${role}? Se ajustarán sus funciones y permisos.`,
                                 );
                           if (!ok) {
                             e.target.value = a.role;
@@ -174,18 +176,32 @@ function EquipoPage() {
                         }}
                       >
                         <option value="comisionista">Comisionista · solo lo suyo</option>
-                        <option value="gerente">Gerencia · todo + lo suyo</option>
+                        <option value="gerente">Gerencia · supervisión y autorización</option>
+                        <option value="oficina">Oficina · expedientes asignados</option>
                       </NativeSelect>
                     ) : (
-                      <span>{a.role === "gerente" ? "Gerencia" : "Comisionista"}</span>
+                      <span>
+                        {a.role === "gerente"
+                          ? "Gerencia"
+                          : a.role === "oficina"
+                            ? "Oficina"
+                            : "Comisionista"}
+                      </span>
                     )}
+                    {me.accessAdmin ? (
+                      <RolePermissions
+                        key={a.userId + JSON.stringify(a.officeOwnerIds) + a.accessAdmin}
+                        member={a}
+                        members={agents}
+                      />
+                    ) : null}
                   </td>
                   <td className="px-4 py-3 tabular">{a.producers}</td>
                   <td className="hidden px-4 py-3 tabular sm:table-cell">{qty(a.hectares, 0)}</td>
                   <td className="hidden px-4 py-3 tabular sm:table-cell">
                     {compactMoney(a.financing)}
                   </td>
-                  {me.role === "gerente" ? (
+                  {me.accessAdmin ? (
                     <td className="px-4 py-3">
                       {a.userId === me.userId ? (
                         <span className="text-xs text-subtle">—</span>
@@ -205,10 +221,8 @@ function EquipoPage() {
           </table>
         </div>
         <p className="mt-3 text-sm text-muted">
-          Al crear cuenta todos entran como comisionista, menos el primero. Si alguien captura y
-          también necesita ver al equipo, súbelo a Gerencia: no pierde su cartera. El candado evita
-          que entre cualquiera con el link. Si se cuela, inhabilítalo o bórralo — te pide escribir
-          el nombre completo.
+          Campo captura; Oficina revisa expedientes asignados; Gerencia autoriza. Administrar
+          accesos es un permiso adicional. Las bajas conservan las carteras y su historial.
         </p>
       </section>
     </div>
@@ -262,10 +276,11 @@ function PurgeDemoPanel() {
 }
 
 function LockPanel() {
+  const [confirm, setConfirm] = useState("");
   const qc = useQueryClient();
   const lock = useQuery({ queryKey: ["lock"], queryFn: () => getLock() });
   const [code, setCode] = useState("");
-  const [confirm, setConfirm] = useState("");
+
   const mut = useMutation({
     mutationFn: setLock,
     onSuccess: (r) => {
@@ -354,8 +369,7 @@ function MemberActions({
   duplicateReview?: boolean;
 }) {
   const qc = useQueryClient();
-  const [open, setOpen] = useState(false);
-  const [confirm, setConfirm] = useState("");
+
   const [identityOpen, setIdentityOpen] = useState(false),
     [identityReason, setIdentityReason] = useState("");
   const statusMut = useMutation({
@@ -368,18 +382,6 @@ function MemberActions({
     },
     onError: (e: Error) => toast.error(e.message),
   });
-  const delMut = useMutation({
-    mutationFn: deleteMember,
-    onSuccess: () => {
-      toast.success("Cuenta eliminada.");
-      setOpen(false);
-      setConfirm("");
-      void qc.invalidateQueries();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-  const [wipe, setWipe] = useState(true);
-
   return (
     <div className="flex flex-wrap gap-1">
       <Dialog
@@ -437,48 +439,6 @@ function MemberActions({
             : "Habilitar"
           : "Inhabilitar"}
       </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon"
-        onClick={() => setOpen(true)}
-        aria-label="Eliminar"
-      >
-        <Trash2 className="size-4" />
-      </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Eliminar a {name}</DialogTitle>
-            <DialogDescription>
-              No se puede deshacer. Si era una cuenta de prueba, deja marcada la casilla para borrar
-              también a los productores que capturó. Escribe el nombre tal cual: {name}
-            </DialogDescription>
-          </DialogHeader>
-          <label className="flex items-start gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="mt-1 size-4"
-              checked={wipe}
-              onChange={(e) => setWipe(e.target.checked)}
-            />
-            <span>Era de prueba: borrar también su cartera (productores y citas).</span>
-          </label>
-          <Input value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder={name} />
-          <Button
-            type="button"
-            variant="destructive"
-            disabled={
-              delMut.isPending || confirm.trim().toLowerCase() !== name.trim().toLowerCase()
-            }
-            onClick={() =>
-              delMut.mutate({ data: { userId, confirmName: confirm, wipeCartera: wipe } })
-            }
-          >
-            {delMut.isPending ? "Eliminando…" : "Sí, eliminar cuenta"}
-          </Button>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -498,9 +458,12 @@ function CarteraList() {
       <h2 className="mb-3 font-display text-xl font-medium">Cartera del ciclo</h2>
       <div className="grid gap-3">
         {agents.map((a) => {
-          const expanded = open === a.name;
+          const expanded = open === (a.userId ?? a.name);
           return (
-            <article key={a.name} className="rounded-xl bg-surface shadow-[var(--shadow-border)]">
+            <article
+              key={a.userId ?? a.name}
+              className="rounded-xl bg-surface shadow-[var(--shadow-border)]"
+            >
               <div className="flex flex-wrap items-center gap-2 px-4 py-3">
                 <button
                   type="button"
@@ -525,7 +488,7 @@ function CarteraList() {
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      setAgent(a.name);
+                      setAgent(a.userId ? "uid:" + a.userId : a.name);
                       void navigate({ to: "/" });
                     }}
                   >

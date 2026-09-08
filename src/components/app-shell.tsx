@@ -27,12 +27,12 @@ import { Onboarding } from "@/components/onboarding";
 
 const NAV = [
   { to: "/", label: "Hoy", icon: Home },
-  { to: "/embudo", label: "Embudo", icon: Columns3 },
-  { to: "/productores", label: "Productores", icon: Users },
-  { to: "/citas", label: "Citas", icon: CalendarDays },
+  { to: "/productores", label: "Mis productores", icon: Users },
+  { to: "/citas", label: "Agenda", icon: CalendarDays },
 ] as const;
 
 const MORE = [
+  { to: "/embudo", label: "Avance por etapas", icon: Columns3 },
   { to: "/papeleria", label: "Papelería", icon: FolderOpen },
   { to: "/grupos", label: "Grupos", icon: Layers },
   { to: "/recordatorios", label: "WhatsApp", icon: MessageCircle },
@@ -45,7 +45,7 @@ const MORE = [
 
 export function AppShell({ profile, children }: { profile: Profile; children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { agent, setAgent, names, isGerente } = useViewAs();
+  const { agent, agentLabel, setAgent, names, agents, isGerente } = useViewAs();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreItems = MORE.filter((item) => {
     if (item.to === "/duplicados" && profile.role !== "gerente") return false;
@@ -103,11 +103,11 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
               >
                 <option value="">Todo el equipo</option>
                 <option value={MINE_SCOPE}>Mi cartera</option>
-                {names
-                  .filter((n) => n !== profile.displayName)
+                {agents
+                  .filter((n) => n.id !== "uid:" + profile.userId)
                   .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
+                    <option key={n.id} value={n.id}>
+                      {n.label}
                     </option>
                   ))}
               </select>
@@ -132,11 +132,11 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
               >
                 <option value="">Todo el equipo</option>
                 <option value={MINE_SCOPE}>Mi cartera</option>
-                {names
-                  .filter((n) => n !== profile.displayName)
+                {agents
+                  .filter((n) => n.id !== "uid:" + profile.userId)
                   .map((n) => (
-                    <option key={n} value={n}>
-                      {n}
+                    <option key={n.id} value={n.id}>
+                      {n.label}
                     </option>
                   ))}
               </select>
@@ -158,7 +158,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 "Viendo tu cartera — lo que capturaste tú."
               ) : (
                 <>
-                  Cartera de <span className="font-medium">{agent}</span> — sigues usando tus
+                  Cartera de <span className="font-medium">{agentLabel}</span> — sigues usando tus
                   permisos de gerencia.
                 </>
               )}
@@ -176,7 +176,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <main className="flex-1 bg-bg px-4 py-5 pb-28 md:px-8 md:py-8 md:pb-10">{children}</main>
         <Onboarding profile={profile} />
 
-        {pathname === "/" || pathname.startsWith("/productores/nuevo") ? null : (
+        {pathname === "/" || pathname.startsWith("/productores/") ? null : (
           <Link
             to="/productores/nuevo"
             className="fixed right-4 z-30 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform duration-150 active:scale-[0.96] md:bottom-8 md:right-8"
@@ -231,7 +231,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           </div>
         ) : null}
 
-        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)] md:hidden">
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);

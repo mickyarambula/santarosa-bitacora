@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- Isolated CommonJS test loader. */
 // Audit only: executes actual CRM handlers against a disposable in-memory PGLite.
 // No DATABASE_URL, network calls, production data, HTTP sessions, or app edits.
 const fs = require("node:fs");
@@ -104,7 +105,7 @@ module.exports = async function makeHarness() {
         "truncate producers cascade; truncate producer_groups, profiles, revoked_users, announcements, crm_audit;",
       );
       await db.query(
-        "insert into profiles(user_id,display_name,role,status) values ('manager','Gerencia prueba','gerente','activo'),('agent_a','Agente A','comisionista','activo'),('agent_b','Agente B','comisionista','activo')",
+        "insert into profiles(user_id,display_name,role,status,access_admin) values ('manager','Gerencia prueba','gerente','activo',true),('agent_a','Agente A','comisionista','activo',false),('agent_b','Agente B','comisionista','activo',false)",
       );
     },
     async call(name, user, data = {}) {

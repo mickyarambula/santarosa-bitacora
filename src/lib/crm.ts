@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { accountMatches } from "./account-identity";
 import { writeAudit } from "./crm-audit";
 import { previewConsolidation, consolidateAccounts } from "./account-consolidation";
@@ -31,7 +32,6 @@ import {
   type DocStatus,
   type GroupRoleId,
   type RejectionKind,
-  type RejectionReasonId,
   type RelationId,
   type SchemeId,
   type StageId,
@@ -47,13 +47,7 @@ import {
   pickWinner,
   type DupRow,
 } from "@/lib/producer-match";
-import {
-  formatAppDateTime,
-  formatAppTime,
-  isAppThisWeek,
-  isAppToday,
-  parseLocalDateTime,
-} from "@/lib/datetime";
+import { formatAppDateTime, isAppThisWeek, isAppToday, parseLocalDateTime } from "@/lib/datetime";
 import {
   followUpMessage,
   inviteToCloseMessage,
@@ -117,6 +111,8 @@ type ProfileRow = {
   status?: string;
   merged_into_user_id?: string | null;
   duplicate_review?: boolean;
+  access_admin?: boolean;
+  office_owner_ids?: string[];
   email?: string | null;
   phone: string | null;
   created_at: string | Date;
@@ -134,7 +130,9 @@ function mapProfile(row: ProfileRow): Profile {
     displayName: row.display_name,
     mergedIntoUserId: row.merged_into_user_id ?? null,
     duplicateReview: Boolean(row.duplicate_review),
-    role: (row.role === "gerente" ? "gerente" : "comisionista") as Role,
+    role: (["gerente", "oficina"].includes(row.role) ? row.role : "comisionista") as Role,
+    accessAdmin: Boolean(row.access_admin),
+    officeOwnerIds: row.office_owner_ids ?? [],
     status: row.status === "bloqueado" ? "bloqueado" : "activo",
     phone: row.phone,
     createdAt: iso(row.created_at),
@@ -167,6 +165,11 @@ function mapProducer(row: ProducerRow): Producer {
     phone: row.phone ? String(row.phone) : null,
     email: row.email ? String(row.email) : null,
     stage: String(row.stage ?? "prospecto") as StageId,
+    closeKind: row.close_kind ? String(row.close_kind) : null,
+    closeReason: row.close_reason ? String(row.close_reason) : null,
+    archivedAt: row.archived_at ? iso(row.archived_at) : null,
+    archiveReason: row.archive_reason ? String(row.archive_reason) : null,
+    stageEnteredAt: row.stage_entered_at ? iso(row.stage_entered_at) : iso(row.created_at),
     blocker: row.blocker ? String(row.blocker) : null,
     notes: row.notes ? String(row.notes) : null,
     cycle: String(row.cycle ?? CYCLE),
@@ -199,7 +202,7 @@ async function withGroupMeta(sql: Sql, producers: Producer[]): Promise<Producer[
   const titularNames = new Map<string, string>();
   if (titularIds.length) {
     const names = await sql<{ id: string; name: string }>`
-      select id, name from producers where cycle = ${CYCLE}
+      select id, name from producers where archived_at is null and cycle = ${CYCLE}
     `;
     for (const n of names) titularNames.set(String(n.id), String(n.name));
   }
@@ -227,6 +230,7 @@ function mapVisit(row: ProducerRow): Visit {
     purpose: row.purpose ? String(row.purpose) : null,
     status: String(row.status ?? "programada") as Visit["status"],
     notes: row.notes ? String(row.notes) : null,
+    outcome: row.outcome ? String(row.outcome) : null,
     phone: row.phone ? String(row.phone) : null,
     zone: String(row.zone ?? ""),
     createdAt: iso(row.created_at),
@@ -284,9 +288,10 @@ async function ensureProfile(
   userId: string,
   displayName: string | null | undefined,
   accessCode?: string | null,
+  invitationToken?: string | null,
 ): Promise<Profile> {
   const existing = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review, access_admin, office_owner_ids
     from profiles where user_id = ${userId} limit 1
   `;
   const revoked = await sql<{ user_id: string }>`
@@ -318,13 +323,37 @@ async function ensureProfile(
   const checkedName = authName || name;
   const possibleDuplicates = await accountMatches(sql, userId, checkedName);
   const duplicateReview = possibleDuplicates.length > 0;
+  if (invitationToken && !revoked[0] && !duplicateReview) {
+    const hash = createHash("sha256").update(invitationToken).digest("hex");
+    const auth = (await sql<{ email: string }>`select email from "user" where id=${userId}`)[0];
+    const invite = (
+      await sql<{
+        id: string;
+      }>`select id from team_invitations where token_hash=${hash} and email=${auth?.email?.trim().toLowerCase() ?? ""} and expires_at>now() and claimed_at is null and revoked_at is null`
+    )[0];
+    if (!invite)
+      throw new Error(
+        "La invitación venció, fue usada o corresponde a otro correo. Revisa el enlace con gerencia.",
+      );
+    status = "activo";
+    await sql`update team_invitations set claimed_at=now(),claimed_by=${userId} where id=${invite.id}`;
+    await writeAudit(
+      sql,
+      { userId, displayName: checkedName },
+      "invitacion",
+      invite.id,
+      "aceptar",
+      null,
+      { userId },
+    );
+  }
   if (duplicateReview) status = "bloqueado";
   await sql`
-    insert into profiles (user_id, display_name, role, status,duplicate_review)
-    values (${userId}, ${checkedName}, ${role}, ${status},${duplicateReview})
+    insert into profiles (user_id, display_name, role, status,duplicate_review,access_admin)
+    values (${userId}, ${checkedName}, ${role}, ${status},${duplicateReview},${isFirst})
   `;
   const created = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review, access_admin, office_owner_ids
     from profiles where user_id = ${userId} limit 1
   `;
   return mapProfile(created[0]!);
@@ -354,13 +383,33 @@ async function getSessionName(userId: string): Promise<string | null> {
   return null;
 }
 
-async function requireProfile(sql: Sql, userId: string): Promise<Profile> {
+async function requireProfile(sql: Sql, userId: string, allowOffice = false): Promise<Profile> {
   const rows = await sql<ProfileRow>`select * from profiles where user_id = ${userId} limit 1`;
   if (!rows[0]) throw new Error("Tu perfil está pendiente. Vuelve a entrar al CRM.");
   const profile = mapProfile(rows[0]);
   const revoked = await sql`select user_id from revoked_users where user_id = ${userId}`;
   if (profile.status === "bloqueado" || revoked.length) throw new Error("LOCKED");
+  if (profile.role === "oficina" && !allowOffice)
+    throw new Error("Este acceso es de Oficina. Abre tus expedientes asignados.");
   return profile;
+}
+
+function assertAccessAdmin(p: Profile) {
+  if (p.role !== "gerente" || !p.accessAdmin)
+    throw new Error("Solo gerencia con administración de accesos puede hacer este cambio.");
+}
+
+async function assertOfficeFile(sql: Sql, p: Profile, id: string) {
+  const rows =
+    await sql<ProducerRow>`select * from producers where id=${id} and archived_at is null`;
+  const row = rows[0];
+  if (
+    !row ||
+    (p.role !== "gerente" &&
+      (p.role !== "oficina" || !p.officeOwnerIds?.includes(String(row.owner_user_id))))
+  )
+    throw new Error("Expediente fuera de tus carteras asignadas.");
+  return row;
 }
 
 async function assertNoDuplicate(
@@ -442,7 +491,7 @@ async function loadGroup(
   const g = rows[0];
   if (!g || (profile.role !== "gerente" && g.owner_user_id !== profile.userId)) return null;
   const memberRows = await sql<ProducerRow>`
-    select * from producers where group_id = ${groupId} and cycle = ${CYCLE}
+    select * from producers where archived_at is null and group_id = ${groupId} and cycle = ${CYCLE}
       and (${profile.role === "gerente"} or owner_user_id = ${profile.userId}) order by name
   `;
   const producers = await withGroupMeta(sql, memberRows.map(mapProducer));
@@ -576,6 +625,10 @@ async function resolveOwner(
     throw new Error("Solo gerencia puede asignar una cartera.");
   const rows = await sql<ProfileRow>`select * from profiles where user_id = ${id}`;
   if (!rows[0]) throw new Error("Elige una cuenta real como responsable.");
+  if (rows[0].role === "oficina")
+    throw new Error(
+      "Oficina revisa expedientes; elige un responsable de campo o gerencia para la cartera.",
+    );
   if (id !== current?.ownerUserId && rows[0].status !== "activo")
     throw new Error("El responsable debe ser una cuenta activa.");
   return { userId: id, displayName: rows[0].display_name };
@@ -642,9 +695,9 @@ async function listProducersRows(
   const relation = opts.relation?.trim() ?? "";
   const rows = await sql<ProducerRow>`
     select * from producers
-    where cycle = ${CYCLE}
+    where archived_at is null and cycle = ${CYCLE}
       and (${scopedMine} = false or owner_user_id = ${profile.userId})
-      and (${agent} = '' or comisionista_name = ${agent})
+      and (${agent} = '' or (comisionista_name = ${agent} or owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       and (${opts.stage ?? ""} = '' or stage = ${opts.stage ?? ""})
       and (${opts.crop ?? ""} = '' or crop = ${opts.crop ?? ""})
       and (${opts.zone ?? ""} = '' or zone = ${opts.zone ?? ""})
@@ -661,26 +714,47 @@ async function listProducersRows(
   return withGroupMeta(sql, rows.map(mapProducer));
 }
 
-async function assertCanEdit(sql: Sql, profile: Profile, producerId: string): Promise<Producer> {
+async function assertCanEdit(
+  sql: Sql,
+  profile: Profile,
+  producerId: string,
+  allowArchived = false,
+): Promise<Producer> {
   const rows = await sql<ProducerRow>`select * from producers where id = ${producerId} limit 1`;
   const producer = rows[0] ? mapProducer(rows[0]) : null;
   if (!producer) throw new Error("No encontramos a ese productor.");
   if (profile.role !== "gerente" && producer.ownerUserId !== profile.userId) {
     throw new Error("Este productor lo lleva otro comisionista.");
   }
+  if (producer.archivedAt && !allowArchived)
+    throw new Error("Esta ficha está archivada. Gerencia puede restaurarla.");
   return (await withGroupMeta(sql, [producer]))[0]!;
 }
 
 export const bootstrap = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(
-    (d: { displayName?: string | null; accessCode?: string | null } | undefined) => d ?? {},
+    (
+      d:
+        | {
+            displayName?: string | null;
+            accessCode?: string | null;
+            invitationToken?: string | null;
+          }
+        | undefined,
+    ) => d ?? {},
   )
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const fromSession = await getSessionName(context.userId);
       const name = (data.displayName ?? "").trim() || fromSession;
-      const profile = await ensureProfile(sql, context.userId, name, data.accessCode);
+      const profile = await ensureProfile(
+        sql,
+        context.userId,
+        name,
+        data.accessCode,
+        data.invitationToken,
+      );
       if (profile.mergedIntoUserId) {
         const target = await sql<{
           email: string;
@@ -703,6 +777,7 @@ export const getLock = createServerFn({ method: "GET" })
   .handler(async ({ context }) => {
     const sql = await getSql();
     const me = await requireProfile(sql, context.userId);
+    assertAccessAdmin(me);
     if (me.role !== "gerente") throw new Error("Solo gerencia puede ver el candado.");
     const lock = await readLock(sql);
     return { enabled: lock.enabled };
@@ -714,6 +789,7 @@ export const setLock = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
       if (me.role !== "gerente") throw new Error("Solo gerencia puede cambiar el candado.");
       if (data.enabled) {
         const code = normalizeAccessCode(data.code ?? "");
@@ -741,12 +817,13 @@ export const setMemberStatus = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
       if (me.role !== "gerente") throw new Error("Solo gerencia puede inhabilitar cuentas.");
       if (!["activo", "bloqueado"].includes(data.status))
         throw new Error("Estado de cuenta no válido.");
       if (data.userId === me.userId) throw new Error("No puedes inhabilitarte a ti mismo.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review, access_admin, office_owner_ids
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -803,10 +880,11 @@ export const deleteMember = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
       if (me.role !== "gerente") throw new Error("Solo gerencia puede eliminar cuentas.");
       if (data.userId === me.userId) throw new Error("No puedes borrar tu propia cuenta.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review, access_admin, office_owner_ids
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -830,21 +908,29 @@ export const deleteMember = createServerFn({ method: "POST" })
           throw new Error("Tiene que quedar al menos una gerencia.");
         }
       }
-      if (data.wipeCartera) {
-        await sql`delete from producers where owner_user_id = ${target.userId}`;
-        await sql`delete from visits where owner_user_id = ${target.userId}`;
-        await sql`delete from producer_groups where owner_user_id = ${target.userId} and not exists (select 1 from producers p where p.group_id = producer_groups.id)`;
-      } else {
-        await sql`update producers set owner_user_id = ${me.userId}, comisionista_name = ${me.displayName} where owner_user_id = ${target.userId}`;
-        await sql`update producer_groups set owner_user_id = ${me.userId}, comisionista_name = ${me.displayName} where owner_user_id = ${target.userId}`;
-        await sql`update visits set owner_user_id = ${me.userId} where owner_user_id = ${target.userId}`;
-      }
+      if (data.wipeCartera)
+        throw new Error(
+          "Las carteras no se borran. Unifica o reasigna y después inhabilita la cuenta.",
+        );
+      const owned =
+        await sql`select id from producers where owner_user_id=${target.userId} limit 1`;
+      if (owned.length)
+        throw new Error("Reasigna o unifica la cartera antes de inhabilitar desde esta opción.");
       await sql`
       insert into revoked_users (user_id, revoked_by, reason)
       values (${target.userId}, ${me.userId}, 'eliminado')
       on conflict (user_id) do nothing
     `;
-      await sql`delete from profiles where user_id = ${target.userId}`;
+      await sql`update profiles set status='bloqueado' where user_id=${target.userId}`;
+      await writeAudit(
+        sql,
+        me,
+        "cuenta",
+        target.userId,
+        "inhabilitar",
+        { status: target.status },
+        { reason: "Baja de acceso; historial conservado" },
+      );
       await sql`delete from "session" where "userId" = ${target.userId}`;
       return { ok: true as const };
     });
@@ -917,7 +1003,7 @@ export const listTeam = createServerFn({ method: "GET" })
                coalesce(sum(volume_ton),0) as vol,
                coalesce(sum(financing_mxn),0) as fin
         from producers
-        where cycle = ${CYCLE} and owner_user_id = ${p.userId}
+        where archived_at is null and cycle = ${CYCLE} and owner_user_id = ${p.userId}
       `;
       agents.push({
         ...p,
@@ -937,14 +1023,16 @@ export const setMemberRole = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
       if (me.role !== "gerente") throw new Error("Solo gerencia puede cambiar roles.");
-      if (!["gerente", "comisionista"].includes(data.role)) throw new Error("Rol no válido.");
+      if (!["gerente", "comisionista", "oficina"].includes(data.role))
+        throw new Error("Rol no válido.");
       if (data.userId === me.userId && data.role !== "gerente") {
         throw new Error(
           "No puedes quitarte el rol de gerencia a ti mismo. Pídele a otro de gerencia que te baje.",
         );
       }
-      if (data.role === "comisionista") {
+      if (data.role !== "gerente") {
         const current = await sql<{ role: string }>`
         select role from profiles where user_id = ${data.userId} limit 1
       `;
@@ -957,7 +1045,25 @@ export const setMemberRole = createServerFn({ method: "POST" })
           }
         }
       }
-      await sql`update profiles set role = ${data.role} where user_id = ${data.userId}`;
+      const target = (
+        await sql<ProfileRow>`select * from profiles where user_id=${data.userId}`
+      )[0];
+      if (!target || target.merged_into_user_id) throw new Error("Cuenta no disponible.");
+      if (
+        data.role === "oficina" &&
+        (await sql`select id from producers where owner_user_id=${data.userId} limit 1`).length
+      )
+        throw new Error("Reasigna su cartera antes de convertir este acceso en Oficina.");
+      await sql`update profiles set role=${data.role},access_admin=case when ${data.role}='gerente' then access_admin else false end,office_owner_ids='{}' where user_id=${data.userId}`;
+      await writeAudit(
+        sql,
+        me,
+        "cuenta",
+        data.userId,
+        "rol",
+        { role: target.role },
+        { role: data.role },
+      );
       return { ok: true as const };
     });
   });
@@ -992,7 +1098,7 @@ export const getProducer = createServerFn({ method: "GET" })
   .handler(async ({ context, data }): Promise<ProducerDetail & { profile: Profile }> => {
     const sql = await getSql();
     const profile = await requireProfile(sql, context.userId);
-    const producer = await assertCanEdit(sql, profile, data.id);
+    const producer = await assertCanEdit(sql, profile, data.id, true);
     const docRows = await sql<ProducerRow>`
       select * from documents where producer_id = ${producer.id} order by doc_type
     `;
@@ -1061,6 +1167,8 @@ export const createProducer = createServerFn({ method: "POST" })
     return (await getSql()).transaction(async (sql) => {
       const profile = await requireProfile(sql, context.userId);
       const owner = await resolveOwner(sql, profile, data.ownerUserId);
+      if (data.stage === "cerrado")
+        throw new Error("Guarda la ficha y registra el resultado del cierre desde Seguimiento.");
       await assertStageChange(sql, profile, data.stage);
       const name = data.name.trim();
       if (!name) throw new Error("Escribe el nombre del productor.");
@@ -1123,6 +1231,8 @@ export const updateProducer = createServerFn({ method: "POST" })
     return (await getSql()).transaction(async (sql) => {
       const profile = await requireProfile(sql, context.userId);
       const prev = await assertCanEdit(sql, profile, data.id);
+      if (data.stage === "cerrado" && prev.stage !== "cerrado")
+        throw new Error("Registra el cierre y su resultado desde Seguimiento.");
       const owner = await resolveOwner(sql, profile, data.ownerUserId, prev);
       const economicChange =
         data.hectares !== prev.hectares ||
@@ -1203,6 +1313,8 @@ export const updateProducer = createServerFn({ method: "POST" })
         phone = ${data.phone?.trim() || null},
         email = ${data.email?.trim() || null},
         stage = ${data.stage},
+        close_kind = ${data.stage === "cerrado" ? prev.closeKind : null},
+        close_reason = ${data.stage === "cerrado" ? prev.closeReason : null},
         blocker = ${data.blocker?.trim() || null},
         notes = ${data.notes?.trim() || null},
         updated_at = now()
@@ -1283,13 +1395,30 @@ export const updateProducer = createServerFn({ method: "POST" })
 
 export const setStage = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((d: { id: string; stage: StageId }) => d)
+  .validator((d: { id: string; stage: StageId; closeKind?: string; reason?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const profile = await requireProfile(sql, context.userId);
       const prev = await assertCanEdit(sql, profile, data.id);
+      if (data.stage === "cerrado" && prev.stage !== "cerrado" && !("closeKind" in data))
+        throw new Error("Registra el cierre y su resultado desde Seguimiento.");
       await assertStageChange(sql, profile, data.stage, prev);
-      await sql`update producers set stage = ${data.stage}, updated_at = now() where id = ${prev.id}`;
+      const reason = data.stage === "cerrado" ? requiredReason(data.reason) : null;
+      if (
+        data.stage === "cerrado" &&
+        !["ganado", "perdido", "cancelado"].includes(data.closeKind ?? "")
+      )
+        throw new Error("Indica si se concretó, se perdió o se canceló el trato.");
+      await sql`update producers set stage=${data.stage},close_kind=${data.stage === "cerrado" ? data.closeKind : null},close_reason=${reason},updated_at=now() where id=${prev.id}`;
+      await writeAudit(
+        sql,
+        profile,
+        "productor",
+        prev.id,
+        "etapa",
+        { stage: prev.stage, closeKind: prev.closeKind, reason: prev.closeReason },
+        { stage: data.stage, closeKind: data.closeKind ?? null, reason },
+      );
       if (prev.stage !== data.stage) {
         await logActivity(
           sql,
@@ -1303,19 +1432,71 @@ export const setStage = createServerFn({ method: "POST" })
     });
   });
 
+/** Compatibility endpoint: never erase a real producer or its history. */
 export const deleteProducer = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((d: { id: string }) => d)
-  .handler(async ({ context, data }) => {
-    return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
-      const prev = await assertCanEdit(sql, profile, data.id);
-      const groupId = prev.groupId;
-      await sql`delete from producers where id = ${prev.id}`;
-      await repairGroup(sql, groupId);
+  .validator((d: { id: string; reason?: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      const p = await assertCanEdit(sql, me, data.id);
+      if (needsApproval(p.stage) && me.role !== "gerente")
+        throw new Error("Pide a gerencia archivar una ficha habilitada o en acopio.");
+      const reason = requiredReason(data.reason);
+      await sql`update producers set archived_at=now(),archived_by=${me.userId},archive_reason=${reason},updated_at=now() where id=${p.id}`;
+      await writeAudit(sql, me, "productor", p.id, "archivar", { stage: p.stage }, { reason });
+      await logActivity(
+        sql,
+        p.id,
+        me.userId,
+        "archivo",
+        `Ficha archivada: ${reason}. Se conserva el expediente.`,
+      );
       return { ok: true as const };
-    });
+    }),
+  );
+
+export const restoreProducer = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string; reason: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      if (me.role !== "gerente") throw new Error("Solo gerencia puede restaurar fichas.");
+      const p = await assertCanEdit(sql, me, data.id, true);
+      if (!p.archivedAt) throw new Error("Esta ficha ya está activa.");
+      const reason = requiredReason(data.reason);
+      await sql`update producers set archived_at=null,archived_by=null,archive_reason=null,updated_at=now() where id=${p.id}`;
+      await writeAudit(
+        sql,
+        me,
+        "productor",
+        p.id,
+        "restaurar",
+        { archivedAt: p.archivedAt, reason: p.archiveReason },
+        { reason },
+      );
+      await logActivity(sql, p.id, me.userId, "archivo", `Ficha restaurada: ${reason}.`);
+      return { ok: true as const };
+    }),
+  );
+
+export const listArchivedProducers = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId);
+    const rows =
+      await sql<ProducerRow>`select * from producers where archived_at is not null and cycle=${CYCLE} and (${me.role === "gerente"} or owner_user_id=${me.userId}) order by archived_at desc`;
+    return { items: rows.map(mapProducer) };
   });
+
+function requiredReason(value?: string | null) {
+  const text = value?.trim() ?? "";
+  if (text.length < 5 || text.length > 1000)
+    throw new Error("Explica el motivo o resultado (5 a 1,000 caracteres).");
+  return text;
+}
 
 export const listDuplicateGroups = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
@@ -1324,7 +1505,7 @@ export const listDuplicateGroups = createServerFn({ method: "GET" })
     const me = await requireProfile(sql, context.userId);
     if (me.role !== "gerente") return { groups: [] as { reason: string; producers: Producer[] }[] };
     const rows =
-      await sql<ProducerRow>`select * from producers where cycle = ${CYCLE} order by name`;
+      await sql<ProducerRow>`select * from producers where archived_at is null and cycle = ${CYCLE} order by name`;
     const producers = rows.map(mapProducer);
     const dups: DupRow[] = producers.map((p) => ({
       id: p.id,
@@ -1351,6 +1532,7 @@ function docRank(status: string): number {
   if (status === "validado") return 4;
   if (status === "recibido") return 3;
   if (status === "no_aplica") return 2;
+  if (status === "entregado") return 1.5;
   if (status === "no_hizo") return 1;
   return 0;
 }
@@ -1467,7 +1649,7 @@ export const listGroups = createServerFn({ method: "GET" })
       select id from producer_groups
       where cycle = ${CYCLE}
         and (${mine} = false or owner_user_id = ${profile.userId})
-        and (${agent} = '' or comisionista_name = ${agent})
+        and (${agent} = '' or (comisionista_name = ${agent} or owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by name
     `;
     const groups: ProducerGroup[] = [];
@@ -1558,10 +1740,10 @@ export const formGroupFromIds = createServerFn({ method: "POST" })
 
 export const setDocumentStatus = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((d: { id: string; status: DocStatus }) => d)
+  .validator((d: { id: string; status: DocStatus; reason?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const rows = await sql<ProducerRow>`
       select d.*, p.owner_user_id, p.scheme, p.stage, p.id as producer_id, p.name as producer_name
       from documents d
@@ -1571,7 +1753,7 @@ export const setDocumentStatus = createServerFn({ method: "POST" })
     `;
       const row = rows[0];
       if (!row) throw new Error("Documento no encontrado.");
-      if (profile.role !== "gerente" && String(row.owner_user_id) !== profile.userId) {
+      if (profile.role === "comisionista" && String(row.owner_user_id) !== profile.userId) {
         throw new Error("Este productor lo lleva otro comisionista.");
       }
       if (!DOC_STATUS.some((s) => s.id === data.status))
@@ -1581,10 +1763,15 @@ export const setDocumentStatus = createServerFn({ method: "POST" })
           "Este documento pertenece al esquema anterior y se conserva como historial.",
         );
       if (
-        profile.role !== "gerente" &&
-        [data.status, String(row.status)].some((s) => s === "validado" || s === "no_aplica")
+        (profile.role === "comisionista" &&
+          [data.status, String(row.status)].some((s) =>
+            ["validado", "no_aplica", "entregado"].includes(s),
+          )) ||
+        (profile.role === "oficina" && [data.status, String(row.status)].includes("no_aplica"))
       )
-        throw new Error("Solo gerencia puede validar documentos o autorizar excepciones.");
+        throw new Error(
+          "Solo gerencia autoriza excepciones; Oficina también puede recibir y validar documentos.",
+        );
       const required = docsForScheme(String(row.scheme)).find(
         (d) => d.id === row.doc_type,
       )?.required;
@@ -1597,16 +1784,27 @@ export const setDocumentStatus = createServerFn({ method: "POST" })
           "Primero regresa la ficha a evaluación para cambiar un documento obligatorio de una habilitación o acopio autorizado.",
         );
       }
-      await sql`
-      update documents set status = ${data.status}, updated_at = now() where id = ${data.id}
-    `;
+      if (profile.role === "oficina") await assertOfficeFile(sql, profile, String(row.producer_id));
+      else await assertCanEdit(sql, profile, String(row.producer_id));
+      const reason =
+        data.status === "no_aplica" ? requiredReason(data.reason) : data.reason?.trim() || null;
+      await sql`update documents set status=${data.status},notes=coalesce(${reason},notes),updated_at=now() where id=${data.id}`;
+      await writeAudit(
+        sql,
+        profile,
+        "documento",
+        data.id,
+        "estado",
+        { status: row.status, notes: row.notes },
+        { status: data.status, reason },
+      );
       await sql`update producers set updated_at = now() where id = ${String(row.producer_id)}`;
       await logActivity(
         sql,
         String(row.producer_id),
         profile.userId,
         "papel",
-        `${docLabel(String(row.scheme), String(row.doc_type))}: ${data.status}.`,
+        `${docLabel(String(row.scheme), String(row.doc_type))}: ${data.status}${reason ? ` · ${reason}` : ""}.`,
       );
       return { ok: true as const };
     });
@@ -1669,6 +1867,10 @@ export const createTouch = createServerFn({ method: "POST" })
       const profile = await requireProfile(sql, context.userId);
       const producer = await assertCanEdit(sql, profile, data.producerId);
       const channel = data.channel.trim() || "nota";
+      if (!["llamada", "whatsapp", "mensaje", "correo", "visita", "nota"].includes(channel))
+        throw new Error("Tipo de contacto no válido.");
+      if (!data.outcome?.trim() && !data.summary?.trim())
+        throw new Error("Registra qué pasó en el contacto.");
       const when = data.happenedAt ? new Date(data.happenedAt) : new Date();
       const id = newId("tch");
       await sql`
@@ -1678,10 +1880,11 @@ export const createTouch = createServerFn({ method: "POST" })
         ${data.outcome?.trim() || null}, ${data.summary?.trim() || null}, ${when.toISOString()}
       )
     `;
-      await sql`
+      if (channel !== "nota")
+        await sql`
       update producers
-      set last_touch_at = ${when.toISOString()},
-          last_touch_channel = ${channel},
+      set last_touch_at = greatest(last_touch_at, ${when.toISOString()}::timestamptz),
+          last_touch_channel = case when last_touch_at is null or last_touch_at <= ${when.toISOString()}::timestamptz then ${channel} else last_touch_channel end,
           updated_at = now()
       where id = ${producer.id}
     `;
@@ -1711,9 +1914,22 @@ export const setVisitStatus = createServerFn({ method: "POST" })
       }
       if (!VISIT_STATUS.some((s) => s.id === data.status))
         throw new Error("Estado de cita no válido.");
+      await assertCanEdit(sql, profile, String(row.producer_id));
+      const result =
+        data.status === "cumplida" && String(row.status) !== "cumplida"
+          ? requiredReason(data.notes)
+          : data.notes?.trim() || null;
+      if (data.status === "cumplida" && String(row.status) !== "cumplida") {
+        const when = new Date().toISOString();
+        await sql`insert into touches(id,producer_id,owner_user_id,channel,outcome,summary,happened_at,visit_id)
+          values(${newId("tch")},${String(row.producer_id)},${profile.userId},'visita','contesto',${result},${when},${data.id})
+          on conflict (visit_id) where visit_id is not null do nothing`;
+        await sql`update visits set outcome=${result},completed_at=coalesce(completed_at,${when}::timestamptz) where id=${data.id}`;
+        await sql`update producers set last_touch_at=(select max(happened_at) from touches where producer_id=${String(row.producer_id)} and channel<>'nota'),last_touch_channel=(select channel from touches where producer_id=${String(row.producer_id)} and channel<>'nota' order by happened_at desc limit 1) where id=${String(row.producer_id)}`;
+      }
       await sql`
       update visits
-      set status = ${data.status}, notes = coalesce(${data.notes?.trim() || null}, notes)
+      set status = ${data.status}, notes = coalesce(${result}, notes)
       where id = ${data.id}
     `;
       if (
@@ -1753,8 +1969,8 @@ export const listVisits = createServerFn({ method: "GET" })
       select v.*, p.name as producer_name, p.phone, p.zone
       from visits v
       join producers p on p.id = v.producer_id
-      where (${mine} = false or v.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+      where p.archived_at is null and (${mine} = false or v.owner_user_id = ${profile.userId})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
     let visits = rows.map(mapVisit);
@@ -1771,7 +1987,7 @@ export const getDashboard = createServerFn({ method: "GET" })
     const profile = await requireProfile(sql, context.userId);
     const { mine, agent } = agentScope(profile, data.agent);
     const list = await listProducersRows(sql, profile, { agent: data.agent });
-    const live = list.filter((p) => p.rejectionKind !== "total");
+    const live = list.filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado");
 
     const kpis = {
       producers: live.length,
@@ -1795,8 +2011,9 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     const agentMap = new Map<string, AgentCount>();
     for (const p of live) {
-      const cur = agentMap.get(p.comisionistaName) ?? {
+      const cur = agentMap.get(p.ownerUserId) ?? {
         name: p.comisionistaName,
+        userId: p.ownerUserId,
         count: 0,
         hectares: 0,
         volume: 0,
@@ -1806,7 +2023,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       cur.hectares += p.hectares;
       cur.volume += p.volumeTon;
       cur.financing += p.financingMxn;
-      agentMap.set(p.comisionistaName, cur);
+      agentMap.set(p.ownerUserId, cur);
     }
     const agents = [...agentMap.values()].sort((a, b) => b.volume - a.volume);
 
@@ -1825,9 +2042,9 @@ export const getDashboard = createServerFn({ method: "GET" })
       join producers p on p.id = d.producer_id
       where d.status in ('pendiente', 'no_hizo')
         and (p.scheme || ':' || d.doc_type) = any(${activeDocumentKeys})
-        and p.cycle = ${CYCLE}
+        and p.archived_at is null and p.cycle = ${CYCLE}
         and (${mine} = false or p.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
     `;
     kpis.pendingDocs = num(pending[0]?.n);
 
@@ -1835,11 +2052,11 @@ export const getDashboard = createServerFn({ method: "GET" })
       select v.*, p.name as producer_name, p.phone, p.zone
       from visits v
       join producers p on p.id = v.producer_id
-      where v.status = 'programada'
+      where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at >= now() - interval '1 day'
         and v.scheduled_at < now() + interval '2 days'
         and (${mine} = false or v.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
     const todayVisits = todayRows.map(mapVisit).filter((v) => isAppToday(v.scheduledAt));
@@ -1849,10 +2066,10 @@ export const getDashboard = createServerFn({ method: "GET" })
       select v.*, p.name as producer_name, p.phone, p.zone
       from visits v
       join producers p on p.id = v.producer_id
-      where v.status = 'programada'
+      where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at > now()
         and (${mine} = false or v.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
       limit 24
     `;
@@ -1875,10 +2092,10 @@ export const getDashboard = createServerFn({ method: "GET" })
       from producers p
       join documents d on d.producer_id = p.id
         and (p.scheme || ':' || d.doc_type) = any(${activeDocumentKeys})
-      where p.cycle = ${CYCLE}
+      where p.archived_at is null and p.cycle = ${CYCLE}
         and p.stage in ('interesado', 'papeleria', 'evaluacion')
         and (${mine} = false or p.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       group by p.id, p.name, p.blocker
       having count(*) filter (where d.status in ('pendiente', 'no_hizo')
         and (p.scheme || ':' || d.doc_type) = any(${activeDocumentKeys})) > 0
@@ -1897,7 +2114,7 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     const stuck = list.filter((p) => {
       if (!["prospecto", "visita"].includes(p.stage)) return false;
-      const age = Date.now() - new Date(p.updatedAt).getTime();
+      const age = Date.now() - new Date(p.stageEnteredAt ?? p.createdAt).getTime();
       return age > 1000 * 60 * 60 * 24 * 3;
     });
     for (const p of stuck.slice(0, 4)) {
@@ -1905,7 +2122,7 @@ export const getDashboard = createServerFn({ method: "GET" })
         id: `stuck-${p.id}`,
         kind: "estancado",
         title: p.name,
-        detail: `Lleva más de 3 días en ${stageMeta(p.stage).label.toLowerCase()}`,
+        detail: `Sin avance de etapa registrado por más de 3 días: ${stageMeta(p.stage).label.toLowerCase()}`,
         producerId: p.id,
       });
     }
@@ -2038,13 +2255,13 @@ export const exportExcel = createServerFn({ method: "GET" })
     const producers = await listProducersRows(sql, profile, { agent: data.agent });
     const byAgent = new Map<string, Producer[]>();
     for (const p of producers) {
-      const arr = byAgent.get(p.comisionistaName) ?? [];
+      const arr = byAgent.get(p.ownerUserId) ?? [];
       arr.push(p);
-      byAgent.set(p.comisionistaName, arr);
+      byAgent.set(p.ownerUserId, arr);
     }
     const summaryRows = [...byAgent.entries()]
-      .map(([name, items]) => [
-        name,
+      .map(([userId, items]) => [
+        items[0].comisionistaName + " · " + userId,
         items.length,
         items.reduce((s, p) => s + p.hectares, 0),
         items.reduce((s, p) => s + p.volumeTon, 0),
@@ -2072,15 +2289,26 @@ export const listAgentNames = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
-    if (profile.role !== "gerente") return { names: [] as string[] };
-    const rows = await sql<{ name: string }>`
-      select distinct comisionista_name as name
-      from producers
-      where cycle = ${CYCLE}
-      order by comisionista_name
-    `;
-    return { names: rows.map((r) => r.name) };
+    const me = await requireProfile(sql, context.userId);
+    const rows =
+      me.role === "gerente"
+        ? await sql<{
+            id: string;
+            name: string;
+            email: string | null;
+          }>`select distinct p.owner_user_id as id,p.comisionista_name as name,u.email from producers p left join "user" u on u.id=p.owner_user_id where p.archived_at is null and p.cycle=${CYCLE} order by p.comisionista_name`
+        : [];
+    return {
+      names: rows.map((r) => r.name),
+      agents: rows.map((r) => ({
+        id: "uid:" + r.id,
+        name: r.name,
+        label:
+          rows.filter((x) => x.name === r.name).length > 1
+            ? r.name + " · " + (r.email ?? r.id)
+            : r.name,
+      })),
+    };
   });
 
 export const getCartera = createServerFn({ method: "GET" })
@@ -2091,13 +2319,14 @@ export const getCartera = createServerFn({ method: "GET" })
     const producers = await listProducersRows(sql, profile, {});
     const map = new Map<string, Producer[]>();
     for (const p of producers) {
-      const arr = map.get(p.comisionistaName) ?? [];
+      const arr = map.get(p.ownerUserId) ?? [];
       arr.push(p);
-      map.set(p.comisionistaName, arr);
+      map.set(p.ownerUserId, arr);
     }
     const agents: AgentCartera[] = [...map.entries()]
-      .map(([name, items]) => ({
-        name,
+      .map(([userId, items]) => ({
+        name: items[0].comisionistaName,
+        userId,
         count: items.length,
         hectares: items.reduce((s, p) => s + p.hectares, 0),
         volume: items.reduce((s, p) => s + p.volumeTon, 0),
@@ -2125,11 +2354,11 @@ export const listReminders = createServerFn({ method: "GET" })
       select v.*, p.name as producer_name, p.phone, p.zone, p.comisionista_name
       from visits v
       join producers p on p.id = v.producer_id
-      where v.status = 'programada'
+      where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at >= now() - interval '2 hours'
         and v.scheduled_at < now() + interval '2 days'
         and (${mine} = false or v.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
     for (const r of visitRows) {
@@ -2159,11 +2388,11 @@ export const listReminders = createServerFn({ method: "GET" })
       from producers p
       join documents d on d.producer_id = p.id
         and (p.scheme || ':' || d.doc_type) = any(${activeDocumentKeys})
-      where p.cycle = ${CYCLE}
+      where p.archived_at is null and p.cycle = ${CYCLE}
         and d.status in ('pendiente', 'no_hizo')
         and p.stage in ('interesado', 'papeleria', 'evaluacion')
         and (${mine} = false or p.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by p.name
     `;
     const paperMap = new Map<
@@ -2213,7 +2442,9 @@ export const listReminders = createServerFn({ method: "GET" })
     const list = await listProducersRows(sql, profile, { agent: agent || undefined });
     const stuck = list.filter((p) => {
       if (!["prospecto", "visita"].includes(p.stage)) return false;
-      return Date.now() - new Date(p.updatedAt).getTime() > 1000 * 60 * 60 * 24 * 3;
+      return (
+        Date.now() - new Date(p.stageEnteredAt ?? p.createdAt).getTime() > 1000 * 60 * 60 * 24 * 3
+      );
     });
     for (const p of stuck.slice(0, 8)) {
       items.push({
@@ -2517,7 +2748,7 @@ export const loadExamples = createServerFn({ method: "POST" })
         throw new Error("Los ejemplos solo se cargan en un entorno local de pruebas.");
       const existing = await sql<{ n: number }>`
       select count(*)::int as n from producers
-      where cycle = ${CYCLE} and owner_user_id = ${profile.userId}
+      where archived_at is null and cycle = ${CYCLE} and owner_user_id = ${profile.userId}
     `;
       if (num(existing[0]?.n) > 0) {
         return { loaded: 0, already: true as const };
@@ -2618,9 +2849,9 @@ export const listPaperwork = createServerFn({ method: "GET" })
       from producers p
       join documents d on d.producer_id = p.id
         and (p.scheme || ':' || d.doc_type) = any(${activeDocumentKeys})
-      where p.cycle = ${CYCLE}
+      where p.archived_at is null and p.cycle = ${CYCLE}
         and (${mine} = false or p.owner_user_id = ${profile.userId})
-        and (${agent} = '' or p.comisionista_name = ${agent})
+        and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
         and coalesce(p.rejection_kind, '') <> 'total'
         and d.status in ('pendiente', 'no_hizo')
       order by p.name, d.doc_type
@@ -3047,7 +3278,11 @@ export const pingOffice = createServerFn({ method: "POST" })
       let message: string;
       let producerId: string | null = data.producerId ?? null;
 
+      if (data.kind !== "aviso" && data.kind !== "invite")
+        throw new Error("Tipo de apoyo no válido.");
       if (data.kind === "aviso") {
+        if (data.visitId || data.producerId)
+          throw new Error("Un resumen no lleva una ficha o cita individual.");
         const digest = await buildOfficeDigest(sql, profile, "");
         message = officeDigestMessage({ personName: person.name, lines: digest.lines });
       } else if (data.visitId) {
@@ -3061,6 +3296,9 @@ export const pingOffice = createServerFn({ method: "POST" })
         const v = rows[0];
         if (!v) throw new Error("No está esa cita.");
         producerId = String(v.producer_id);
+        await assertCanEdit(sql, profile, producerId);
+        if (data.producerId && data.producerId !== producerId)
+          throw new Error("La cita no corresponde al productor.");
         message = inviteToVisitMessage({
           personName: person.name,
           agentName: String(v.comisionista_name ?? profile.displayName),
@@ -3087,23 +3325,14 @@ export const pingOffice = createServerFn({ method: "POST" })
         throw new Error("Falta el productor o la cita.");
       }
 
+      const pingId = newId("png");
       await sql`
       insert into office_pings (id, person_id, person_name, kind, producer_id, message, user_id)
-      values (${newId("png")}, ${person.id}, ${person.name}, ${data.kind}, ${producerId}, ${message}, ${profile.userId})
+      values (${pingId}, ${person.id}, ${person.name}, ${data.kind}, ${producerId}, ${message}, ${profile.userId})
     `;
-      if (producerId) {
-        const label = data.kind === "aviso" ? "Se avisó a" : "Se invitó a";
-        await logActivity(
-          sql,
-          producerId,
-          profile.userId,
-          "oficina",
-          `${label} ${person.name} por WhatsApp.`,
-        );
-      }
       const href = whatsappHref(person.phone, message);
       if (!href) throw new Error("Esa persona no tiene WhatsApp cargado.");
-      return { href, personName: person.name };
+      return { href, personName: person.name, pingId };
     });
   });
 
@@ -3115,7 +3344,7 @@ export const listOfficePings = createServerFn({ method: "GET" })
     if (me.role !== "gerente") return { pings: [] as OfficePing[] };
     const rows = await sql<Record<string, unknown>>`
       select id, person_name, kind, producer_id, message, created_at
-      from office_pings
+      from office_pings where confirmed_at is not null
       order by created_at desc
       limit 20
     `;
@@ -3157,11 +3386,11 @@ async function buildOfficeDigest(sql: Sql, profile: Profile, agentRaw?: string) 
     select v.scheduled_at, v.purpose, v.place, p.name as producer_name, p.comisionista_name
     from visits v
     join producers p on p.id = v.producer_id
-    where v.status = 'programada'
+    where p.archived_at is null and v.status = 'programada'
       and v.scheduled_at >= now() - interval '1 hour'
       and v.scheduled_at < now() + interval '2 days'
       and (${mine} = false or v.owner_user_id = ${profile.userId})
-      and (${agent} = '' or p.comisionista_name = ${agent})
+      and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
     order by v.scheduled_at asc
     limit 8
   `;
@@ -3178,10 +3407,10 @@ async function buildOfficeDigest(sql: Sql, profile: Profile, agentRaw?: string) 
   const closing = await sql<ProducerRow>`
     select name, comisionista_name, hectares, crop, stage, zone
     from producers
-    where cycle = ${CYCLE}
+    where archived_at is null and cycle = ${CYCLE}
       and stage in ('interesado', 'papeleria', 'evaluacion')
       and (${mine} = false or owner_user_id = ${profile.userId})
-      and (${agent} = '' or comisionista_name = ${agent})
+      and (${agent} = '' or (comisionista_name = ${agent} or owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
     order by updated_at desc
     limit 6
   `;
@@ -3201,6 +3430,7 @@ export const previewAccountMerge = createServerFn({ method: "GET" })
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const me = await requireProfile(sql, context.userId);
+    assertAccessAdmin(me);
     return previewConsolidation(sql, me, data.sourceId, data.targetId);
   });
 export const mergeAccounts = createServerFn({ method: "POST" })
@@ -3217,6 +3447,7 @@ export const mergeAccounts = createServerFn({ method: "POST" })
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
       return consolidateAccounts(sql, me, data);
     }),
   );
@@ -3393,10 +3624,10 @@ export const listNextActions = createServerFn({ method: "GET" })
         pending: number;
         overdue: number;
         missing: number;
-      }>`select count(*) filter(where next_action is not null)::int as pending,count(*) filter(where next_action_at<now())::int as overdue,count(*) filter(where next_action is null)::int as missing from producers where cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or comisionista_name=${agent})`
+      }>`select count(*) filter(where next_action is not null)::int as pending,count(*) filter(where next_action_at<now())::int as overdue,count(*) filter(where next_action is null)::int as missing from producers where archived_at is null and cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or (comisionista_name=${agent} or owner_user_id=${agent.startsWith("uid:") ? agent.slice(4) : ""}))`
     )[0]!;
     const rows =
-      await sql<ProducerRow>`select id,name,comisionista_name,next_action,next_action_at from producers where cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or comisionista_name=${agent}) and (case when ${view}='sin_accion' then next_action is null else next_action is not null end) order by next_action_at asc nulls last,name,id limit 100`;
+      await sql<ProducerRow>`select id,name,comisionista_name,next_action,next_action_at from producers where archived_at is null and cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or (comisionista_name=${agent} or owner_user_id=${agent.startsWith("uid:") ? agent.slice(4) : ""})) and (case when ${view}='sin_accion' then next_action is null else next_action is not null end) order by next_action_at asc nulls last,name,id limit 100`;
     return {
       stats,
       items: rows.map((r) => ({
@@ -3409,3 +3640,170 @@ export const listNextActions = createServerFn({ method: "GET" })
       })),
     };
   });
+
+export const confirmOfficePing = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      const rows =
+        await sql<ProducerRow>`select * from office_pings where id=${data.id} and user_id=${me.userId}`;
+      const p = rows[0];
+      if (!p) throw new Error("No encontramos ese mensaje preparado por ti.");
+      if (p.confirmed_at) return { ok: true as const };
+      if (p.producer_id) await assertCanEdit(sql, me, String(p.producer_id));
+      await sql`update office_pings set confirmed_at=now() where id=${data.id}`;
+      if (p.producer_id)
+        await logActivity(
+          sql,
+          String(p.producer_id),
+          me.userId,
+          "oficina",
+          `Envío a ${String(p.person_name)} por WhatsApp confirmado por ${me.displayName}.`,
+        );
+      return { ok: true as const };
+    }),
+  );
+
+export const setAccessAdmin = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { userId: string; enabled: boolean; reason: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
+      const reason = requiredReason(data.reason);
+      const p = (await sql<ProfileRow>`select * from profiles where user_id=${data.userId}`)[0];
+      if (!p || p.role !== "gerente" || p.status !== "activo" || p.merged_into_user_id)
+        throw new Error("Elige una gerencia activa.");
+      if (me.userId === data.userId && !data.enabled)
+        throw new Error("No puedes quitarte tu propio acceso administrativo.");
+      await sql`update profiles set access_admin=${Boolean(data.enabled)} where user_id=${data.userId}`;
+      await writeAudit(
+        sql,
+        me,
+        "cuenta",
+        data.userId,
+        "administracion_accesos",
+        { enabled: p.access_admin },
+        { enabled: data.enabled, reason },
+      );
+      return { ok: true as const };
+    }),
+  );
+
+export const setOfficeAssignments = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { userId: string; ownerIds: string[]; reason: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
+      const reason = requiredReason(data.reason);
+      const ids = [...new Set(data.ownerIds)];
+      const target = (
+        await sql<ProfileRow>`select * from profiles where user_id=${data.userId} and role='oficina' and status='activo'`
+      )[0];
+      if (!target) throw new Error("Elige un acceso activo de Oficina.");
+      const owners =
+        await sql`select user_id from profiles where user_id=any(${ids}) and role in ('comisionista','gerente') and status='activo' and merged_into_user_id is null`;
+      if (owners.length !== ids.length) throw new Error("Selecciona carteras de cuentas activas.");
+      await sql`update profiles set office_owner_ids=${ids} where user_id=${data.userId}`;
+      await writeAudit(
+        sql,
+        me,
+        "cuenta",
+        data.userId,
+        "carteras_oficina",
+        { ownerIds: target.office_owner_ids },
+        { ownerIds: ids, reason },
+      );
+      return { ok: true as const };
+    }),
+  );
+
+export const listOfficeFiles = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId, true);
+    if (!["oficina", "gerente"].includes(me.role))
+      throw new Error("Solo Oficina y gerencia revisan expedientes.");
+    const rows =
+      await sql<ProducerRow>`select p.id,p.name,p.comisionista_name,p.scheme,p.stage from producers p where p.cycle=${CYCLE} and p.archived_at is null and p.stage<>'cerrado' and (${me.role === "gerente"} or p.owner_user_id=any(${me.officeOwnerIds ?? []})) order by p.name`;
+    return {
+      items: rows.map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        ownerName: String(r.comisionista_name),
+        scheme: String(r.scheme),
+        stage: String(r.stage),
+      })),
+    };
+  });
+
+export const getOfficeFile = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId, true);
+    const p = await assertOfficeFile(sql, me, data.id);
+    const docs = await sql<ProducerRow>`select * from documents where producer_id=${data.id}`;
+    return {
+      id: data.id,
+      name: String(p.name),
+      ownerName: String(p.comisionista_name),
+      documents: visibleDocuments(docs, String(p.scheme), data.id),
+    };
+  });
+
+export const createTeamInvitation = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { email: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
+      const email = data.email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254)
+        throw new Error("Escribe un correo válido.");
+      if ((await sql`select id from "user" where lower(email)=${email}`).length)
+        throw new Error("Ese correo ya tiene cuenta. Revisa su acceso en Equipo.");
+      const token = randomBytes(32).toString("base64url"),
+        id = newId("invite");
+      await sql`update team_invitations set revoked_at=now() where email=${email} and claimed_at is null and revoked_at is null`;
+      await sql`insert into team_invitations(id,email,token_hash,created_by,expires_at) values(${id},${email},${createHash("sha256").update(token).digest("hex")},${me.userId},now()+interval '7 days')`;
+      await writeAudit(sql, me, "invitacion", id, "crear", null, { email, expiresInDays: 7 });
+      return { id, path: "/login?invitacion=" + token, email };
+    }),
+  );
+export const listTeamInvitations = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .handler(async ({ context }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId);
+    assertAccessAdmin(me);
+    return {
+      items: await sql<{
+        id: string;
+        email: string;
+        expires_at: string;
+        claimed_at: string | null;
+        revoked_at: string | null;
+      }>`select id,email,expires_at,claimed_at,revoked_at from team_invitations order by created_at desc limit 50`,
+    };
+  });
+export const revokeTeamInvitation = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      assertAccessAdmin(me);
+      await sql`update team_invitations set revoked_at=now() where id=${data.id} and claimed_at is null`;
+      await writeAudit(sql, me, "invitacion", data.id, "revocar", null, {});
+      return { ok: true as const };
+    }),
+  );

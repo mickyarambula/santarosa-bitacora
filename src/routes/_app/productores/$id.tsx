@@ -1,10 +1,13 @@
+import { StageControl } from "@/components/stage-control";
+import { ProducerArchive } from "@/components/producer-archive";
+import { VisitStatusControl } from "@/components/visit-status-control";
 import { NextAction } from "@/components/next-action";
 import { RescheduleVisit } from "@/components/reschedule-visit";
-import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { ChevronDown, MapPin, Trash2 } from "lucide-react";
+import { ChevronDown, MapPin } from "lucide-react";
 import { ContactLog } from "@/components/contact-log";
 import { DocsChecklist } from "@/components/docs-checklist";
 import { OfficeInvite } from "@/components/office-invite";
@@ -15,32 +18,24 @@ import { StageChip } from "@/components/stage-chip";
 import { VisitForm } from "@/components/visit-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { NativeSelect } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-  STAGES,
-  VISIT_STATUS,
   cropLabel,
   docsForScheme,
   groupRoleLabel,
   relationLabel,
   schemeLabel,
-  stageMeta,
   unitLabel,
 } from "@/lib/catalog";
 import {
   createVisit,
-  deleteProducer,
   getProducer,
   setDocumentStatus,
   setRejection,
-  setStage,
-  setVisitStatus,
   updateProducer,
 } from "@/lib/crm";
-import type { DocStatus, StageId } from "@/lib/catalog";
+import type { DocStatus } from "@/lib/catalog";
 import { compactMoney, formatPhone, money, qty, whatsappHref } from "@/lib/utils";
-import { needsApproval } from "@/lib/catalog";
 import { formatAppDateTime } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_app/productores/$id")({
@@ -49,7 +44,6 @@ export const Route = createFileRoute("/_app/productores/$id")({
 
 function ProducerDetailPage() {
   const { id } = Route.useParams();
-  const nav = useNavigate();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [pendingDoc, setPendingDoc] = useState<string | null>(null);
@@ -68,17 +62,9 @@ function ProducerDetailPage() {
       qc.invalidateQueries({ queryKey: ["paper"] }),
     ]);
 
-  const stageMut = useMutation({
-    mutationFn: (stage: StageId) => setStage({ data: { id, stage } }),
-    onSuccess: () => {
-      toast.success("Etapa actualizada.");
-      void invalidate();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
   const docMut = useMutation({
-    mutationFn: (vars: { id: string; status: DocStatus }) => setDocumentStatus({ data: vars }),
+    mutationFn: (vars: { id: string; status: DocStatus; reason?: string }) =>
+      setDocumentStatus({ data: vars }),
     onMutate: (vars) => setPendingDoc(vars.id),
     onSettled: () => setPendingDoc(null),
     onSuccess: () => void invalidate(),
@@ -91,12 +77,6 @@ function ProducerDetailPage() {
       toast.success("Cita agendada.");
       void invalidate();
     },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const visitStatusMut = useMutation({
-    mutationFn: setVisitStatus,
-    onSuccess: () => void invalidate(),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -115,16 +95,6 @@ function ProducerDetailPage() {
     onSuccess: () => {
       toast.success("Dictamen guardado en el expediente.");
       void invalidate();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  });
-
-  const delMut = useMutation({
-    mutationFn: () => deleteProducer({ data: { id } }),
-    onSuccess: async () => {
-      toast.success("Productor eliminado.");
-      await qc.invalidateQueries();
-      void nav({ to: "/productores" });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -183,25 +153,51 @@ function ProducerDetailPage() {
           ) : null}
           {p.email ? <p className="mt-1 text-sm text-muted">{p.email}</p> : null}
         </div>
-        <OfficeInvite
-          producerId={p.id}
-          producerName={p.name}
-          visitId={visits.find((v) => v.status === "programada")?.id}
-        />
+        {!p.archivedAt ? (
+          <OfficeInvite
+            producerId={p.id}
+            producerName={p.name}
+            visitId={visits.find((v) => v.status === "programada")?.id}
+          />
+        ) : null}
       </header>
       <nav aria-label="Secciones de la ficha" className="flex flex-wrap gap-2">
         <Button asChild variant="outline">
           <a href="#seguimiento">Seguimiento</a>
         </Button>
         <Button asChild variant="outline">
-          <a href="#papeleria">Papelería</a>
+          <a
+            href="#papeleria"
+            onClick={() => {
+              const el = document.getElementById("papeleria");
+              if (el instanceof HTMLDetailsElement) el.open = true;
+            }}
+          >
+            Papelería
+          </a>
         </Button>
         <Button asChild variant="outline">
-          <a href="#citas">Ir a citas</a>
+          <a
+            href="#citas"
+            onClick={() => {
+              const el = document.getElementById("citas");
+              if (el instanceof HTMLDetailsElement) el.open = true;
+            }}
+          >
+            Ir a citas
+          </a>
         </Button>
         {activity.length ? (
           <Button asChild variant="outline">
-            <a href="#bitacora">Ver bitácora</a>
+            <a
+              href="#bitacora"
+              onClick={() => {
+                const el = document.getElementById("bitacora");
+                if (el instanceof HTMLDetailsElement) el.open = true;
+              }}
+            >
+              Ver bitácora
+            </a>
           </Button>
         ) : null}
       </nav>
@@ -216,9 +212,9 @@ function ProducerDetailPage() {
               : `${qty(p.hectares, 1)} ha`
           }
         />
-        <Stat label="Volumen" value={`${qty(p.volumeTon, 1)} t`} />
+        <Stat label="Volumen estimado" value={`${qty(p.volumeTon, 1)} t`} />
         <Stat
-          label="Préstamo"
+          label="Monto estimado"
           value={
             p.financingMxn
               ? `${compactMoney(p.financingMxn)}${p.financingPerHa ? ` · ${compactMoney(p.financingPerHa)}/ha` : ""}`
@@ -227,9 +223,15 @@ function ProducerDetailPage() {
         />
       </div>
 
-      <NextAction producerId={p.id} />
+      {p.archivedAt ? (
+        <p role="status" className="rounded-lg bg-secondary p-4">
+          Ficha archivada: {p.archiveReason}. El expediente se conserva.
+        </p>
+      ) : (
+        <NextAction producerId={p.id} />
+      )}
 
-      {q.data.profile.role === "gerente" ? (
+      {!p.archivedAt && q.data.profile.role === "gerente" ? (
         <RejectionPanel
           producer={p}
           pending={rejectMut.isPending}
@@ -290,167 +292,150 @@ function ProducerDetailPage() {
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Contacto</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ContactLog
-            producerId={p.id}
-            producerName={p.name}
-            phone={p.phone}
-            email={p.email}
-            agentName={p.comisionistaName}
-            touches={touches ?? []}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="grid gap-3 p-4 sm:flex sm:items-end sm:justify-between">
-          <label className="grid flex-1 gap-1.5">
-            <span className="text-sm font-medium">Mover de etapa</span>
-            <NativeSelect
-              value={p.stage}
-              onChange={(e) => stageMut.mutate(e.target.value as StageId)}
-            >
-              {STAGES.filter(
-                (s) =>
-                  q.data.profile.role === "gerente" ||
-                  (!needsApproval(s.id) && !needsApproval(p.stage)) ||
-                  s.id === p.stage,
-              ).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.label}
-                </option>
-              ))}
-            </NativeSelect>
-            <span className="text-xs text-muted">{stageMeta(p.stage).hint}</span>
-          </label>
-          <p className="text-sm text-muted">
-            {unitLabel(p.businessUnit)} · {schemeLabel(p.scheme)}
-          </p>
-        </CardContent>
-      </Card>
-
-      {p.blocker ? (
-        <div className="rounded-xl border border-clay/30 bg-clay/8 px-4 py-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-clay">Qué falta</p>
-          <p className="mt-1 font-medium">{p.blocker}</p>
-        </div>
-      ) : null}
-
-      <Card id="papeleria" className="scroll-mt-24">
-        <CardContent className="p-5">
-          <DocsChecklist
-            documents={documents}
-            canValidate={q.data.profile.role === "gerente"}
-            pendingId={pendingDoc}
-            onChange={(docId, status) => docMut.mutate({ id: docId, status })}
-          />
-          {missing.length && waDocs ? (
-            <Button asChild variant="secondary" className="mt-4 w-full">
-              <a href={waDocs} target="_blank" rel="noreferrer">
-                Pedir los {missing.length} faltantes por WhatsApp
-              </a>
-            </Button>
-          ) : (
-            <p className="mt-3 text-sm text-muted">
-              {progress.requiredDone}/{progress.required} obligatorios en regla.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card id="citas" className="scroll-mt-24">
-        <CardHeader>
-          <CardTitle>Citas</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-4">
-          <VisitForm
-            pending={visitMut.isPending}
-            onSubmit={(data) =>
-              visitMut.mutate({
-                data: {
-                  producerId: p.id,
-                  scheduledAt: data.scheduledAt,
-                  place: data.place,
-                  purpose: data.purpose,
-                  notes: data.notes,
-                },
-              })
-            }
-          />
-          {visits.length ? (
-            <ul className="grid gap-2">
-              {visits.map((v) => (
-                <li key={v.id} className="rounded-lg border border-border p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <p className="font-medium">
-                        {formatAppDateTime(v.scheduledAt, {
-                          weekday: "short",
-                          day: "numeric",
-                          month: "short",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </p>
-                      <p className="text-sm text-muted">
-                        {v.purpose}
-                        {v.place ? ` · ${v.place}` : ""}
-                      </p>
-                    </div>
-                    <RescheduleVisit visit={v} />
-                    <NativeSelect
-                      className="h-10 w-40"
-                      value={v.status}
-                      onChange={(e) =>
-                        visitStatusMut.mutate({
-                          data: {
-                            id: v.id,
-                            status: e.target.value as (typeof VISIT_STATUS)[number]["id"],
-                          },
-                        })
-                      }
-                    >
-                      {VISIT_STATUS.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </NativeSelect>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <button
-          type="button"
-          className="flex w-full items-center justify-between p-5 text-left"
-          onClick={() => setEditing((v) => !v)}
-        >
-          <span className="font-display text-lg font-medium">Editar ficha</span>
-          <ChevronDown className={`size-5 transition-transform ${editing ? "rotate-180" : ""}`} />
-        </button>
-        {editing ? (
-          <CardContent className="pt-0">
-            <ProducerForm
-              initial={p}
-              submitLabel="Guardar cambios"
-              pending={saveMut.isPending}
-              onSubmit={(data) => saveMut.mutate({ data: { ...data, id: p.id } })}
+      <fieldset
+        disabled={!!p.archivedAt}
+        className={p.archivedAt ? "pointer-events-none opacity-60" : "contents"}
+      >
+        <Card>
+          <CardHeader>
+            <CardTitle>Contacto</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ContactLog
+              producerId={p.id}
+              producerName={p.name}
+              phone={p.phone}
+              email={p.email}
+              agentName={p.comisionistaName}
+              touches={touches ?? []}
             />
           </CardContent>
-        ) : null}
-      </Card>
+        </Card>
 
+        <Card>
+          <CardContent className="grid gap-3 p-4 sm:flex sm:items-end sm:justify-between">
+            <StageControl producer={p} isGerente={q.data.profile.role === "gerente"} />
+            <p className="text-sm text-muted">
+              {unitLabel(p.businessUnit)} · {schemeLabel(p.scheme)}
+            </p>
+          </CardContent>
+        </Card>
+
+        {p.blocker ? (
+          <div className="rounded-xl border border-clay/30 bg-clay/8 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wider text-clay">Qué falta</p>
+            <p className="mt-1 font-medium">{p.blocker}</p>
+          </div>
+        ) : null}
+
+        <details id="papeleria" className="scroll-mt-24 rounded-xl border bg-surface p-4">
+          <summary className="min-h-11 cursor-pointer py-2 font-display text-lg">
+            Papelería · {progress.requiredDone}/{progress.required} reunidos
+          </summary>
+          <Card>
+            <CardContent className="p-5">
+              <DocsChecklist
+                documents={documents}
+                canValidate={q.data.profile.role === "gerente"}
+                readOnly={!!p.archivedAt}
+                pendingId={pendingDoc}
+                onChange={(docId, status, reason) => docMut.mutate({ id: docId, status, reason })}
+              />
+              {missing.length && waDocs ? (
+                <Button asChild variant="secondary" className="mt-4 w-full">
+                  <a href={waDocs} target="_blank" rel="noreferrer">
+                    Pedir los {missing.length} faltantes por WhatsApp
+                  </a>
+                </Button>
+              ) : (
+                <p className="mt-3 text-sm text-muted">
+                  {progress.requiredDone}/{progress.required} obligatorios en regla.
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </details>
+        <details id="citas" className="scroll-mt-24 rounded-xl border bg-surface p-4">
+          <summary className="min-h-11 cursor-pointer py-2 font-display text-lg">
+            Citas · {visits.length}
+          </summary>
+          <Card>
+            <CardHeader>
+              <CardTitle>Citas</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-4">
+              <VisitForm
+                pending={visitMut.isPending}
+                onSubmit={(data) =>
+                  visitMut.mutate({
+                    data: {
+                      producerId: p.id,
+                      scheduledAt: data.scheduledAt,
+                      place: data.place,
+                      purpose: data.purpose,
+                      notes: data.notes,
+                    },
+                  })
+                }
+              />
+              {visits.length ? (
+                <ul className="grid gap-2">
+                  {visits.map((v) => (
+                    <li key={v.id} className="rounded-lg border border-border p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-medium">
+                            {formatAppDateTime(v.scheduledAt, {
+                              weekday: "short",
+                              day: "numeric",
+                              month: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                          <p className="text-sm text-muted">
+                            {v.purpose}
+                            {v.place ? ` · ${v.place}` : ""}
+                          </p>
+                        </div>
+                        <RescheduleVisit visit={v} />
+                        <VisitStatusControl visit={v} />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </CardContent>
+          </Card>
+        </details>
+        <Card>
+          <button
+            type="button"
+            className="flex w-full items-center justify-between p-5 text-left"
+            onClick={() => setEditing((v) => !v)}
+          >
+            <span className="font-display text-lg font-medium">Editar ficha</span>
+            <ChevronDown className={`size-5 transition-transform ${editing ? "rotate-180" : ""}`} />
+          </button>
+          {editing ? (
+            <CardContent className="pt-0">
+              <ProducerForm
+                initial={p}
+                submitLabel="Guardar cambios"
+                pending={saveMut.isPending}
+                onSubmit={async (data) => {
+                  await saveMut.mutateAsync({ data: { ...data, id: p.id } });
+                }}
+              />
+            </CardContent>
+          ) : null}
+        </Card>
+      </fieldset>
       {activity.length ? (
-        <section id="bitacora" className="scroll-mt-24">
+        <details id="bitacora" className="scroll-mt-24 rounded-xl border bg-surface p-4">
+          <summary className="min-h-11 cursor-pointer py-2 font-display text-lg">
+            Bitácora · {activity.length} registros
+          </summary>
           <h2 className="mb-3 font-display text-lg font-medium">Bitácora</h2>
           <ol className="grid gap-2">
             {activity.map((a) => (
@@ -465,22 +450,15 @@ function ProducerDetailPage() {
               </li>
             ))}
           </ol>
-        </section>
+        </details>
       ) : null}
 
-      <div className="flex justify-end">
-        <Button
-          variant="ghost"
-          className="text-destructive"
-          onClick={() => {
-            if (confirm(`¿Eliminar a ${p.name}? Esta acción no se puede deshacer.`))
-              delMut.mutate();
-          }}
-        >
-          <Trash2 className="size-4" />
-          Eliminar
-        </Button>
-      </div>
+      <ProducerArchive
+        key={p.archivedAt ?? "active"}
+        id={p.id}
+        archived={!!p.archivedAt}
+        canRestore={q.data.profile.role === "gerente"}
+      />
       <p className="sr-only">
         {money(p.financingMxn)} {docsForScheme(p.scheme).length}
       </p>

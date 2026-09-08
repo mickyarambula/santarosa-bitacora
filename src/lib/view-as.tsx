@@ -6,6 +6,9 @@ import type { Profile } from "@/lib/types";
 const STORAGE_KEY = "sr-view-as";
 
 type ViewAsContextValue = {
+  userId: string;
+  agents: { id: string; name: string; label: string }[];
+  captureOwnerId?: string;
   agent: string | null;
   agentLabel: string | null;
   setAgent: (name: string | null) => void;
@@ -16,6 +19,8 @@ type ViewAsContextValue = {
 };
 
 const ViewAsContext = createContext<ViewAsContextValue>({
+  userId: "",
+  agents: [],
   agent: null,
   agentLabel: null,
   setAgent: () => {},
@@ -27,13 +32,7 @@ const ViewAsContext = createContext<ViewAsContextValue>({
 
 export { MINE_SCOPE };
 
-export function ViewAsProvider({
-  profile,
-  children,
-}: {
-  profile: Profile;
-  children: ReactNode;
-}) {
+export function ViewAsProvider({ profile, children }: { profile: Profile; children: ReactNode }) {
   const isGerente = profile.role === "gerente";
   const [agent, setAgentState] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
@@ -62,13 +61,17 @@ export function ViewAsProvider({
   }
 
   const scoped = isGerente ? agent : null;
-  const agentLabel = scoped === MINE_SCOPE ? "tu cartera" : scoped;
+  const selected = namesQ.data?.agents?.find((a) => a.id === scoped);
+  const agentLabel = scoped === MINE_SCOPE ? "tu cartera" : (selected?.label ?? scoped);
   const captureName =
-    scoped && scoped !== MINE_SCOPE ? scoped : profile.displayName;
+    scoped && scoped !== MINE_SCOPE ? (selected?.name ?? scoped) : profile.displayName;
 
   return (
     <ViewAsContext.Provider
       value={{
+        userId: profile.userId,
+        agents: namesQ.data?.agents ?? [],
+        captureOwnerId: scoped?.startsWith("uid:") ? scoped.slice(4) : undefined,
         agent: scoped,
         agentLabel,
         setAgent,

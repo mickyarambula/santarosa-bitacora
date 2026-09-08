@@ -39,9 +39,12 @@ export const authEnabled = import.meta.env.VITE_AUTH_ENABLED !== "false";
 
 /** The upstream providers to render sign-in buttons for. */
 export { GROK_PROVIDERS };
-export const SIGN_IN_PROVIDERS = import.meta.env.VITE_AUTH_MODE === "standalone"
-  ? (import.meta.env.VITE_GOOGLE_ENABLED === "true" ? [{ providerId: "google", label: "Google" }] : [])
-  : GROK_PROVIDERS;
+export const SIGN_IN_PROVIDERS =
+  import.meta.env.VITE_AUTH_MODE === "standalone"
+    ? import.meta.env.VITE_GOOGLE_ENABLED === "true"
+      ? [{ providerId: "google", label: "Google" }]
+      : []
+    : GROK_PROVIDERS;
 
 // ── Live-preview bearer token ────────────────────────────────────────────────
 // The embedded preview iframe has partitioned cookies, so we keep the session's
@@ -76,10 +79,7 @@ function setBearerToken(token: string | null): void {
  * popup there and a normal redirect everywhere else.
  */
 function inLivePreview(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    window.location.hostname.endsWith(".grok-sandbox.com")
-  );
+  return typeof window !== "undefined" && window.location.hostname.endsWith(".grok-sandbox.com");
 }
 
 /** Message the popup posts back to the opener once sign-in completes. */
@@ -106,7 +106,8 @@ export async function signIn(
   if (import.meta.env.VITE_AUTH_MODE === "standalone") {
     if (providerId !== "google") throw new Error("Proveedor de acceso no disponible.");
     const { data, error } = await authClient.signIn.social({
-      provider: "google", callbackURL: opts.callbackURL ?? "/",
+      provider: "google",
+      callbackURL: opts.callbackURL ?? "/",
       errorCallbackURL: opts.errorCallbackURL ?? "/login",
     });
     if (error) throw new Error(error.message ?? "No se pudo entrar con Google.");
@@ -149,7 +150,11 @@ export async function signIn(
     if (typeof window !== "undefined") {
       const dest = new URL(callbackURL, window.location.origin);
       const here = window.location;
-      if (dest.origin !== here.origin || dest.pathname !== here.pathname || dest.search !== here.search) {
+      if (
+        dest.origin !== here.origin ||
+        dest.pathname !== here.pathname ||
+        dest.search !== here.search
+      ) {
         window.location.href = callbackURL;
       }
     }
@@ -232,6 +237,11 @@ function waitForPopupToken(popup: Window): Promise<string | null> {
  * preview the local clear is sufficient, so it always resolves.
  */
 export async function signOut(redirectTo = "/"): Promise<void> {
+  try {
+    if (typeof window !== "undefined") sessionStorage.removeItem("sr-invitation-token");
+  } catch {
+    /* storage unavailable */
+  }
   await runSignOut({
     livePreview: inLivePreview(),
     hasBearer: Boolean(getBearerToken()),

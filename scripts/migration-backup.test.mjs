@@ -68,6 +68,7 @@ before(async () => {
     insert into office_pings(id,person_id,person_name,kind,message,user_id) values
       ('ping-test','office-test','Oficina ficticia','cita','Invitación ficticia','agent-test');
     insert into crm_audit(id,entity_type,entity_id,action,actor_user_id,actor_name) values('audit-test','aviso','announcement-test','publicar','owner-test','Gerencia ficticia');
+    insert into team_invitations(id,email,token_hash,created_by,expires_at) values('invite-test','invite@test.invalid','fictional-invite-hash','owner-test','2027-01-01');
     update app_lock set enabled=true,code_hash='fictional-code-hash';
     insert into announcements(id,author_user_id,author_name,body) values
       ('announcement-test','owner-test','Gerencia ficticia','Aviso ficticio');

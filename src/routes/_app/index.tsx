@@ -8,7 +8,6 @@ import { KpiStrip } from "@/components/kpi-strip";
 import { OfficeInvite } from "@/components/office-invite";
 import { PhoneActions } from "@/components/phone-actions";
 import { ProducerCard } from "@/components/producer-card";
-import { ShareGuide } from "@/components/share-guide";
 import { StageChip } from "@/components/stage-chip";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +23,7 @@ export const Route = createFileRoute("/_app/")({ component: Hoy });
 
 function Hoy() {
   const qc = useQueryClient();
-  const { agent, agentLabel, setAgent, names, isGerente } = useViewAs();
+  const { agent, agentLabel, setAgent, isGerente } = useViewAs();
   const dash = useQuery({
     queryKey: ["dashboard", agent],
     queryFn: () => getDashboard({ data: { agent: agent || undefined } }),
@@ -91,7 +90,7 @@ function Hoy() {
               ? `Cartera de ${agentLabel} · ciclo ${CYCLE} · conservas permisos de gerencia`
               : d.profile.role === "gerente"
                 ? `Tablero del ciclo ${CYCLE} · ves a todo el equipo`
-                : `Tu captura del ciclo ${CYCLE}`}
+                : `Tus pendientes del ciclo ${CYCLE}`}
           </p>
         </div>
         <Button asChild>
@@ -175,48 +174,11 @@ function Hoy() {
         </div>
       ) : null}
 
-      {d.profile.role === "gerente" && !agent ? (
-        <Card>
-          <CardContent className="grid gap-3 pt-5 sm:flex sm:items-center sm:justify-between">
-            <div>
-              <p className="font-medium">Pasar al grupo de comisionistas</p>
-              <p className="text-sm text-muted">
-                Un recado listo, con el link y los 5 pasos. También está en Más → Cómo se usa.
-              </p>
-            </div>
-            <ShareGuide compact />
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {isGerente && !agent && names.length > 0 ? (
-        <Card>
-          <CardContent className="flex flex-col gap-3 pt-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="font-medium">Probar la vista de un comisionista</p>
-              <p className="text-sm text-muted">
-                Hoy, embudo, citas y papelería se filtran a lo suyo. Tú sigues siendo gerencia.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {names.slice(0, 3).map((n) => (
-                <Button key={n} variant="outline" size="sm" onClick={() => setAgent(n)}>
-                  {n.split(" ")[0]}
-                </Button>
-              ))}
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/equipo">Ver desglose</Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : null}
-
       {empty ? (
         <EmptyState
           icon={<img src="/brand/isotipo.png" alt="" className="h-14 w-auto" />}
           title="Aún no hay productores"
-          body="Empieza capturando al primero — nombre, teléfono y hectáreas bastan."
+          body="Empieza por sus datos básicos; después elige el cultivo y el servicio que necesita."
           action={
             <Button asChild>
               <Link to="/productores/nuevo">Capturar el primero</Link>
@@ -225,13 +187,6 @@ function Hoy() {
         />
       ) : (
         <>
-          <KpiStrip
-            producers={d.kpis.producers}
-            hectares={d.kpis.hectares}
-            volume={d.kpis.volume}
-            financing={d.kpis.financing}
-          />
-
           <NextActionsPanel key={agent ?? "all"} agent={agent} />
           <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <Card>
@@ -329,6 +284,17 @@ function Hoy() {
             </Card>
           </section>
 
+          <details open={isGerente} className="rounded-xl border p-4">
+            <summary className="cursor-pointer py-2 font-medium">
+              Resumen de la cartera activa
+            </summary>{" "}
+            <KpiStrip
+              producers={d.kpis.producers}
+              hectares={d.kpis.hectares}
+              volume={d.kpis.volume}
+              financing={d.kpis.financing}
+            />
+          </details>
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="font-display text-xl font-medium">Por etapa</h2>
@@ -374,12 +340,12 @@ function Hoy() {
                   </thead>
                   <tbody>
                     {d.agents.map((a) => (
-                      <tr key={a.name} className="border-b border-border last:border-0">
+                      <tr key={a.userId ?? a.name} className="border-b border-border last:border-0">
                         <td className="px-4 py-3">
                           <button
                             type="button"
                             className="font-medium hover:underline"
-                            onClick={() => setAgent(a.name)}
+                            onClick={() => setAgent(a.userId ? "uid:" + a.userId : a.name)}
                           >
                             {a.name}
                           </button>
