@@ -1,3 +1,5 @@
+import { WeeklyEventContext } from "@/components/weekly-event-context";
+import { reviewSearch, type ReviewSearch } from "@/lib/weekly-review";
 import { ProducerHistory } from "@/components/producer-history";
 import { PortfolioAssignment } from "@/components/portfolio-assignment";
 import { ProducerCommunications } from "@/components/producer-communications";
@@ -42,11 +44,16 @@ import { compactMoney, formatPhone, money, qty, whatsappHref } from "@/lib/utils
 import { formatAppDateTime } from "@/lib/datetime";
 
 export const Route = createFileRoute("/_app/productores/$id")({
+  validateSearch: (raw: Record<string, unknown>): ReviewSearch & { movement?: string } => ({
+    ...reviewSearch(raw),
+    movement: typeof raw.movement === "string" ? raw.movement.slice(0, 150) : undefined,
+  }),
   component: ProducerDetailPage,
 });
 
 function ProducerDetailPage() {
   const { id } = Route.useParams();
+  const weeklySearch = Route.useSearch();
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [pendingDoc, setPendingDoc] = useState<string | null>(null);
@@ -128,6 +135,7 @@ function ProducerDetailPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-8">
+      <WeeklyEventContext producerId={id} search={weeklySearch} />
       <PageBack to="/productores" label="Productores" />
       <p className="sr-only">
         <Link to="/productores">Productores</Link>
@@ -387,7 +395,11 @@ function ProducerDetailPage() {
               {visits.length ? (
                 <ul className="grid gap-2">
                   {visits.map((v) => (
-                    <li key={v.id} className="rounded-lg border border-border p-3">
+                    <li
+                      id={`cita-${v.id}`}
+                      key={v.id}
+                      className="scroll-mt-24 rounded-lg border border-border p-3"
+                    >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="font-medium">

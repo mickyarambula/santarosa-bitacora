@@ -130,7 +130,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 : "Comisionista"}
           </p>
           <p className="mt-1 truncate font-medium">{profile.displayName}</p>
-          {canOperate && names.length > 0 ? (
+          {canOperate && names.length > 0 && pathname !== "/junta" ? (
             <label className="mt-3 block">
               <span className="text-[11px] uppercase tracking-wider text-sidebar-muted">
                 Ver cartera de
@@ -162,7 +162,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-bg px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 md:hidden">
           <BrandLogo variant="header" on="light" home />
           <div className="flex min-w-0 items-center gap-2">
-            {canOperate && names.length > 0 ? (
+            {canOperate && names.length > 0 && pathname !== "/junta" ? (
               <select
                 aria-label="Ver cartera de"
                 className="h-10 max-w-36 truncate rounded-full border-0 bg-secondary px-3 text-xs font-medium text-primary"
@@ -190,7 +190,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           </div>
         </header>
 
-        {agent ? (
+        {agent && pathname !== "/junta" ? (
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-secondary px-4 py-2 text-sm md:px-8">
             <p>
               {agent === MINE_SCOPE ? (

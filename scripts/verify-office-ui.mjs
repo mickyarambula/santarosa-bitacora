@@ -106,6 +106,9 @@ try {
   await office.getByRole("button", { name: "Revisar asignación", exact: true }).click();
   await office.getByRole("button", { name: "Agregar tarea", exact: true }).click();
   await office.getByLabel("Qué hay que hacer", { exact: true }).fill("Revisar INE de ensayo");
+  await office
+    .getByLabel("Responsable de la tarea", { exact: true })
+    .selectOption({ label: "Oficina Ensayo · oficina" });
   await office.getByLabel("Fecha para atender · Sinaloa", { exact: true }).fill("2026-09-10T09:00");
   await office.getByRole("button", { name: "Guardar tarea", exact: true }).click();
   await office.getByText("Tarea guardada.", { exact: true }).waitFor();

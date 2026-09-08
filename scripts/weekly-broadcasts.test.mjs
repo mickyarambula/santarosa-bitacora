@@ -278,3 +278,90 @@ test("manual confirmations survive reopening and retries, omissions are not cont
     0,
   );
 });
+
+test("weekly navigation groups roles and distinguishes matching account names without merging", async () => {
+  await h.db.exec(
+    "update profiles set display_name='Nombre coincidente' where user_id in ('agent_a','agent_b')",
+  );
+  const r = await weekly();
+  assert.equal(r.portfolios.find((p) => p.id === "office").role, "oficina");
+  assert.equal(r.portfolios.find((p) => p.id === "manager").role, "gerente");
+  const a = r.portfolios.find((p) => p.id === "agent_a"),
+    b = r.portfolios.find((p) => p.id === "agent_b");
+  assert.equal(a.name, b.name);
+  assert(a.identity && b.identity && a.identity !== b.identity);
+  const field = await weekly("agent_a");
+  assert.deepEqual(
+    field.portfolios.map((p) => p.id),
+    ["agent_a"],
+  );
+});
+
+test("weekly review filters keep zero activity and overdue work available, and restore URL state", async () => {
+  const { portfolioSummaries, filterPortfolios, reviewSearch } = h.load(
+    path.resolve("src/lib/weekly-review.ts"),
+  );
+  const r = await weekly();
+  const items = portfolioSummaries(
+    r.portfolios,
+    [
+      { portfolioId: "agent_a", producerId: "one" },
+      { portfolioId: "agent_a", producerId: "one" },
+    ],
+    [{ portfolioId: "agent_b", status: "pendiente", dueAt: "2020-01-01T00:00:00Z" }],
+    r.asOf,
+  );
+  assert.equal(items.find((p) => p.id === "agent_a").producers.size, 1);
+  assert.deepEqual(
+    filterPortfolios(items, { filter: "actividad" }).map((p) => p.id),
+    ["agent_a"],
+  );
+  assert.deepEqual(
+    filterPortfolios(items, { filter: "vencidos" }).map((p) => p.id),
+    ["agent_b"],
+  );
+  assert(filterPortfolios(items, { filter: "sin-actividad" }).some((p) => p.id === "agent_b"));
+  assert(!filterPortfolios(items, {}).some((p) => p.id === "manager"));
+  assert(filterPortfolios(items, { group: "todos" }).some((p) => p.id === "manager"));
+  assert.deepEqual(
+    filterPortfolios(items, { group: "empresa" }).map((p) => p.id),
+    ["empresa"],
+  );
+  const search = {
+    date: "2026-09-08",
+    portfolio: "agent_a",
+    section: "compromisos",
+    category: "vencidas",
+    q: "Ángel",
+    filter: "vencidos",
+    group: "comisionistas",
+    page: "1",
+    view: "live",
+  };
+  assert.deepEqual(reviewSearch(search), { ...search, date: "2026-09-07", page: 1 });
+  assert.deepEqual(
+    reviewSearch({ date: "2026-02-30", section: "anything", group: "anything", page: -1 }),
+    {},
+  );
+});
+
+test("weekly movement links resolve real evidence and cannot expose another portfolio", async () => {
+  const a = await create("Ficha de prueba enlace");
+  const data = await h.call("getProducer", "agent_a", { id: a.id });
+  await h.call("setDocumentStatus", "office", { id: data.documents[0].id, status: "recibido" });
+  const r = await weekly();
+  const e = r.events.find((e) => e.kind === "documento");
+  assert.equal(e.actor, "Oficina ficticia");
+  assert.equal(e.target, "documento-" + data.documents[0].id);
+  const input = { date: day(), producerId: a.id, eventId: e.id };
+  assert.deepEqual(await h.call("getWeeklyEvent", "agent_a", input), e);
+  await assert.rejects(h.call("getWeeklyEvent", "agent_b", input), /no está disponible/);
+  await assert.rejects(
+    h.call("getWeeklyEvent", "agent_a", { ...input, producerId: "other" }),
+    /no está disponible/,
+  );
+  await assert.rejects(
+    h.call("getWeeklyEvent", "agent_a", { ...input, eventId: "missing" }),
+    /no está disponible/,
+  );
+});
