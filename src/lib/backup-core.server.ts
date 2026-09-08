@@ -30,13 +30,17 @@ export const BACKUP_TABLES = [
   "announcements",
   "crm_audit",
   "team_invitations",
+  "producer_tasks",
+  "producer_communications",
   "_migrations",
 ] as const;
 export function backupTablesForMigrations(migrations: readonly string[]) {
   return BACKUP_TABLES.filter(
     (t) =>
       (t !== "crm_audit" || migrations.includes("0013_traceability.sql")) &&
-      (t !== "team_invitations" || migrations.includes("0018_team_invitations.sql")),
+      (t !== "team_invitations" || migrations.includes("0018_team_invitations.sql")) &&
+      (t !== "producer_tasks" || migrations.includes("0020_shared_tasks.sql")) &&
+      (t !== "producer_communications" || migrations.includes("0021_communications.sql")),
   );
 }
 export type BackupTableName = (typeof BACKUP_TABLES)[number];

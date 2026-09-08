@@ -3,6 +3,15 @@ import { CROPS, SCHEMES, STAGES, UNITS, ZONES } from "./catalog";
 
 const amount = z.number().finite().nonnegative().max(99999999);
 export const producerInputSchema = z.object({
+  portfolioKind: z.enum(["comisionista", "empresa", "pendiente"]).optional(),
+  attentionUserId: z
+    .string()
+    .nullish()
+    .transform((v) => v ?? undefined),
+  intakeChannel: z
+    .enum(["oficina", "campo", "llamada", "otro"])
+    .nullish()
+    .transform((v) => v ?? undefined),
   id: z.string().optional(),
   ownerUserId: z.string().optional(),
   name: z.string().trim().min(1, "Escribe el nombre del productor.").max(250),

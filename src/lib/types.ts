@@ -36,6 +36,12 @@ export type Producer = {
   stageEnteredAt?: string;
   id: string;
   ownerUserId: string;
+  portfolioKind?: "comisionista" | "empresa" | "pendiente";
+  attentionUserId?: string | null;
+  attentionName?: string | null;
+  capturedBy?: string | null;
+  capturedName?: string | null;
+  intakeChannel?: string | null;
   comisionistaName: string;
   name: string;
   businessUnit: BusinessUnit;
@@ -122,6 +128,9 @@ export type TouchItem = {
 };
 
 export type ProducerInput = {
+  portfolioKind?: "comisionista" | "empresa" | "pendiente";
+  attentionUserId?: string;
+  intakeChannel?: "oficina" | "campo" | "llamada" | "otro";
   ownerUserId?: string;
   name: string;
   comisionistaName?: string;

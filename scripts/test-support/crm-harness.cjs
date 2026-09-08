@@ -91,7 +91,10 @@ module.exports = async function makeHarness() {
       tx.transaction = (fn) => fn(tx);
       return work(tx);
     });
-  const crm = load(path.join(root, "src/lib/crm.ts"));
+  const crm = {
+    ...load(path.join(root, "src/lib/crm.ts")),
+    ...load(path.join(root, "src/lib/operations.ts")),
+  };
   return {
     db,
     sql,
