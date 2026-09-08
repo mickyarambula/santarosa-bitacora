@@ -55,6 +55,9 @@ const empty: ProducerInput = {
 function fromProducer(p: Producer): ProducerInput {
   return {
     ownerUserId: p.ownerUserId,
+    portfolioKind: p.portfolioKind,
+    attentionUserId: p.attentionUserId ?? undefined,
+    intakeChannel: (p.intakeChannel ?? undefined) as ProducerInput["intakeChannel"],
     name: p.name,
     comisionistaName: p.comisionistaName,
     businessUnit: p.businessUnit,
@@ -102,7 +105,7 @@ export function ProducerForm({
   );
   const [inGroup, setInGroup] = useState(Boolean(initial?.groupId));
   const [groupPick, setGroupPick] = useState(initial?.groupId || "new");
-  const { isGerente, userId, captureOwnerId } = useViewAs();
+  const { isGerente, canOperate, isOffice, userId, captureOwnerId } = useViewAs();
   const draftKey = `sr-capture-v1-${userId}`;
   const [draft, setDraft] = useState<ProducerInput | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -160,14 +163,17 @@ export function ProducerForm({
       (p) => (p.status === "activo" && p.role !== "oficina") || p.userId === initial?.ownerUserId,
     ) ?? [];
   const defaultOwners = owners.filter((p) => p.displayName === defaultAgent);
+  const portfolioKind = form.portfolioKind ?? (isOffice ? "pendiente" : "comisionista");
   const ownerUserId =
-    form.ownerUserId ??
-    captureOwnerId ??
-    (defaultAgent && defaultAgent !== teamQ.data?.me.displayName
-      ? defaultOwners.length === 1
-        ? defaultOwners[0]!.userId
-        : ""
-      : (teamQ.data?.me.userId ?? ""));
+    portfolioKind !== "comisionista"
+      ? ""
+      : (form.ownerUserId ??
+        captureOwnerId ??
+        (defaultAgent && defaultAgent !== teamQ.data?.me.displayName
+          ? defaultOwners.length === 1
+            ? defaultOwners[0]!.userId
+            : ""
+          : (teamQ.data?.me.userId ?? "")));
   const groupsQ = useQuery({
     queryKey: ["groups", "assignment"],
     queryFn: () => listGroups({ data: {} }),
@@ -203,6 +209,11 @@ export function ProducerForm({
           await onSubmit({
             ...form,
             ownerUserId,
+            portfolioKind,
+            attentionUserId: initial
+              ? form.attentionUserId
+              : form.attentionUserId || (portfolioKind === "comisionista" ? ownerUserId : userId),
+            intakeChannel: form.intakeChannel ?? (canOperate ? "oficina" : "campo"),
             hectares: num(form.hectares),
             yieldTonHa: num(form.yieldTonHa),
             financingMxn: financing,
@@ -280,16 +291,87 @@ export function ProducerForm({
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {isGerente ? (
-              <Field label="Responsable de seguimiento">
+            {canOperate && !initial ? (
+              <>
+                <Field label="Cartera comercial">
+                  <NativeSelect
+                    aria-label="Cartera comercial"
+                    value={portfolioKind}
+                    onChange={(e) => {
+                      patch("portfolioKind", e.target.value as ProducerInput["portfolioKind"]);
+                      patch("ownerUserId", "");
+                      patch("attentionUserId", "");
+                      setInGroup(false);
+                    }}
+                  >
+                    <option value="pendiente">Pendiente de asignar</option>
+                    <option value="empresa">Cartera de empresa · sin comisionista</option>
+                    <option value="comisionista">Con comisionista</option>
+                  </NativeSelect>
+                </Field>
+                <Field label="Llegó por">
+                  <NativeSelect
+                    aria-label="Llegó por"
+                    value={form.intakeChannel ?? "oficina"}
+                    onChange={(e) =>
+                      patch("intakeChannel", e.target.value as ProducerInput["intakeChannel"])
+                    }
+                  >
+                    <option value="oficina">Oficina</option>
+                    <option value="campo">Visita de campo</option>
+                    <option value="llamada">Llamada</option>
+                    <option value="otro">Otro</option>
+                  </NativeSelect>
+                </Field>
+                <Field label="Persona de atención">
+                  <NativeSelect
+                    aria-label="Persona de atención"
+                    value={
+                      form.attentionUserId ||
+                      (portfolioKind === "comisionista" ? ownerUserId : userId)
+                    }
+                    onChange={(e) => patch("attentionUserId", e.target.value)}
+                  >
+                    <option value="">Elige quién atenderá</option>
+                    {teamQ.data?.agents
+                      .filter(
+                        (p) =>
+                          p.status === "activo" &&
+                          (p.role !== "comisionista" ||
+                            (portfolioKind === "comisionista" && p.userId === ownerUserId)),
+                      )
+                      .map((p) => (
+                        <option value={p.userId} key={p.userId}>
+                          {p.displayName} · {p.email}
+                        </option>
+                      ))}
+                  </NativeSelect>
+                </Field>
+                {portfolioKind === "pendiente" ? (
+                  <p className="text-sm text-muted">
+                    La ficha quedará en Pendiente de asignar. Al guardar podrás programar quién debe
+                    resolverlo y cuándo.
+                  </p>
+                ) : null}
+              </>
+            ) : null}
+            {canOperate && !initial && portfolioKind === "comisionista" ? (
+              <Field label="Comisionista de la cartera">
                 <NativeSelect
+                  aria-label="Comisionista de la cartera"
                   value={ownerUserId}
-                  onChange={(e) => patch("ownerUserId", e.target.value)}
+                  onChange={(e) => {
+                    patch("ownerUserId", e.target.value);
+                    patch("attentionUserId", "");
+                  }}
                 >
                   <option value="">Elige una cuenta del equipo…</option>
                   {owners.map((p) => (
                     <option key={p.userId} value={p.userId}>
                       {p.displayName}
+                      {owners.filter((m) => m.displayName === p.displayName).length > 1
+                        ? ` · ${p.email}`
+                        : ""}
                     </option>
                   ))}
                 </NativeSelect>
@@ -297,11 +379,6 @@ export function ProducerForm({
                   La ficha aparecerá en la cartera de esta persona. Tu captura queda en el
                   historial.
                 </span>
-                {initial?.groupId && ownerUserId !== initial.ownerUserId ? (
-                  <span className="text-sm text-rose">
-                    Se asignará todo el grupo y sus citas al nuevo responsable.
-                  </span>
-                ) : null}
               </Field>
             ) : null}
             {teamQ.error ? (
@@ -405,7 +482,17 @@ export function ProducerForm({
                     <NativeSelect value={groupPick} onChange={(e) => setGroupPick(e.target.value)}>
                       <option value="new">Nuevo grupo</option>
                       {(groupsQ.data?.groups ?? [])
-                        .filter((g) => g.ownerUserId === ownerUserId || g.id === initial?.groupId)
+                        .filter(
+                          (g) =>
+                            (g.ownerUserId === ownerUserId &&
+                              g.comisionistaName ===
+                                (portfolioKind === "empresa"
+                                  ? "Cartera de empresa"
+                                  : portfolioKind === "pendiente"
+                                    ? "Pendiente de asignar"
+                                    : g.comisionistaName)) ||
+                            g.id === initial?.groupId,
+                        )
                         .map((g) => (
                           <option key={g.id} value={g.id}>
                             {g.name}
@@ -652,7 +739,12 @@ export function ProducerForm({
             type="button"
             size="xl"
             className="w-full"
-            disabled={!form.name.trim() || !zoneChosen || !cropChosen || !ownerUserId}
+            disabled={
+              !form.name.trim() ||
+              !zoneChosen ||
+              !cropChosen ||
+              (portfolioKind === "comisionista" && !ownerUserId)
+            }
             onClick={(e) => {
               if (e.currentTarget.form?.reportValidity()) {
                 setStep(2);
@@ -676,7 +768,7 @@ export function ProducerForm({
               disabled={
                 pending ||
                 !form.name.trim() ||
-                !ownerUserId ||
+                (portfolioKind === "comisionista" && !ownerUserId) ||
                 !zoneChosen ||
                 !cropChosen ||
                 !serviceChosen ||

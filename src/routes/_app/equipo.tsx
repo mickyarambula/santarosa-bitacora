@@ -177,7 +177,7 @@ function EquipoPage() {
                       >
                         <option value="comisionista">Comisionista · solo lo suyo</option>
                         <option value="gerente">Gerencia · supervisión y autorización</option>
-                        <option value="oficina">Oficina · expedientes asignados</option>
+                        <option value="oficina">Oficina · atención de todas las carteras</option>
                       </NativeSelect>
                     ) : (
                       <span>
@@ -221,8 +221,9 @@ function EquipoPage() {
           </table>
         </div>
         <p className="mt-3 text-sm text-muted">
-          Campo captura; Oficina revisa expedientes asignados; Gerencia autoriza. Administrar
-          accesos es un permiso adicional. Las bajas conservan las carteras y su historial.
+          Campo lleva su cartera; Oficina recibe y atiende todas las carteras; Gerencia autoriza.
+          Administrar accesos es un permiso adicional. Las bajas conservan las carteras y su
+          historial.
         </p>
       </section>
     </div>

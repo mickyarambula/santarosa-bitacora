@@ -133,41 +133,26 @@ test("closed files do not count in active KPIs and ordinary edits do not reset s
     2020,
   );
 });
-test("Office only sees assigned documents, cannot operate commercial endpoints or grant exceptions", async () => {
+test("Office operates all portfolios but cannot grant exceptions or management approvals", async () => {
   await h.db.exec(
-    "insert into profiles(user_id,display_name,role,status,office_owner_ids) values('office','Oficina','oficina','activo',array['agent_a'])",
+    "insert into profiles(user_id,display_name,role,status) values('office','Oficina','oficina','activo')",
   );
-  assert.equal((await h.call("listOfficeFiles", "office")).items.length, 1);
-  await assert.rejects(h.call("getOfficeFile", "office", { id: "b" }));
-  await assert.rejects(h.call("setDocumentStatus", "office", { id: "db", status: "validado" }));
+  assert.equal((await h.call("listOfficeFiles", "office")).items.length, 2);
+  await h.call("getOfficeFile", "office", { id: "b" });
+  await h.call("setDocumentStatus", "office", { id: "db", status: "validado" });
   await h.call("setDocumentStatus", "office", { id: "da", status: "entregado" });
-  await h.call("setDocumentStatus", "office", { id: "da", status: "validado" });
   await assert.rejects(
     h.call("setDocumentStatus", "office", {
       id: "da",
       status: "no_aplica",
-      reason: "Excepción ajena",
+      reason: "No corresponde",
     }),
   );
-  for (const fn of [
-    "getProducer",
-    "listProducers",
-    "exportExcel",
-    "getDashboard",
-    "setStage",
-    "createTouch",
-    "createVisit",
-    "deleteProducer",
-    "setMemberRole",
-    "setLock",
-    "getOfficeDigest",
-  ])
-    await assert.rejects(
-      h.call(fn, "office", { id: "a", producerId: "a", stage: "habilitado" }),
-      /Oficina/,
-    );
-  await h.db.exec("update profiles set office_owner_ids='{}' where user_id='office'");
-  await assert.rejects(h.call("getOfficeFile", "office", { id: "a" }));
+  await assert.rejects(h.call("setStage", "office", { id: "a", stage: "habilitado" }));
+  for (const fn of ["setMemberRole", "setLock", "mergeAccounts", "setRejection"])
+    await assert.rejects(h.call(fn, "office", { id: "a" }));
+  await h.db.exec("update profiles set status='bloqueado' where user_id='office'");
+  await assert.rejects(h.call("getOfficeFile", "office", { id: "a" }), /LOCKED/);
 });
 test("management without access-admin retains operations but cannot change roles or memberships", async () => {
   await h.db.exec(
@@ -234,32 +219,15 @@ test("individual invitations are email-bound, single-use, revocable and never gr
     /administración/,
   );
 });
-test("assignment changes are audited, immediately revoked and cannot target an unknown owner", async () => {
-  await h.db.exec(
-    "insert into profiles(user_id,display_name,role,status) values('office2','Expedientes','oficina','activo')",
-  );
-  await h.call("setOfficeAssignments", "manager", {
-    userId: "office2",
-    ownerIds: ["agent_b"],
-    reason: "Apoyará esa cartera",
-  });
-  assert.deepEqual(
-    (await h.call("listOfficeFiles", "office2")).items.map((p) => p.id),
-    ["b"],
-  );
+test("the obsolete Office assignment endpoint fails clearly instead of pretending to revoke global operations", async () => {
   await assert.rejects(
     h.call("setOfficeAssignments", "manager", {
-      userId: "office2",
-      ownerIds: ["not-real"],
-      reason: "Prueba de alcance",
+      userId: "agent_a",
+      ownerIds: [],
+      reason: "Revisar acceso",
     }),
+    /todas las carteras/,
   );
-  await h.call("setOfficeAssignments", "manager", {
-    userId: "office2",
-    ownerIds: [],
-    reason: "Terminó su revisión",
-  });
-  assert.equal((await h.call("listOfficeFiles", "office2")).items.length, 0);
 });
 
 test("closure requires a classified outcome and reopening clears it without losing its audit", async () => {

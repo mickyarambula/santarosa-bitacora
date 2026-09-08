@@ -87,8 +87,8 @@ function Hoy() {
           <h1 className="font-display text-3xl font-medium tracking-tight md:text-4xl">{title}</h1>
           <p className="mt-1 text-sm text-muted">
             {agentLabel
-              ? `Cartera de ${agentLabel} · ciclo ${CYCLE} · conservas permisos de gerencia`
-              : d.profile.role === "gerente"
+              ? `Cartera de ${agentLabel} · ciclo ${CYCLE} · conservas los permisos de tu perfil`
+              : d.profile.role !== "comisionista"
                 ? `Tablero del ciclo ${CYCLE} · ves a todo el equipo`
                 : `Tus pendientes del ciclo ${CYCLE}`}
           </p>
@@ -323,7 +323,7 @@ function Hoy() {
           {d.profile.role === "gerente" && !agent && d.agents.length > 0 ? (
             <section>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-display text-xl font-medium">Por comisionista</h2>
+                <h2 className="font-display text-xl font-medium">Por cartera</h2>
                 <Link to="/equipo" className="text-sm text-primary hover:underline">
                   Ver desglose
                 </Link>
@@ -359,7 +359,7 @@ function Hoy() {
                 </table>
               </div>
               <p className="mt-2 text-xs text-muted">
-                Toca un nombre para consultar su cartera con tus permisos de gerencia.
+                Toca un nombre para consultar su cartera con tus permisos habituales.
               </p>
             </section>
           ) : null}

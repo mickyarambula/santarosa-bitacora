@@ -49,8 +49,8 @@ export function Onboarding({ profile }: { profile: Profile }) {
         <p className="mt-2 text-sm leading-relaxed text-muted">{current.body}</p>
         {profile.role === "gerente" && step === 0 ? (
           <p className="mt-3 text-sm leading-relaxed text-muted">
-            Tú supervisas al equipo y puedes llevar cartera propia. Oficina revisa expedientes
-            asignados; administrar accesos requiere un permiso adicional.
+            Tú supervisas al equipo y puedes llevar cartera propia. Oficina recibe y atiende todas
+            las carteras; administrar accesos requiere un permiso adicional.
           </p>
         ) : null}
         <div className="mt-4 flex gap-1.5" aria-hidden>

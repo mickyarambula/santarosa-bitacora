@@ -1,3 +1,4 @@
+import { ReceptionSearch } from "@/components/reception-search";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -15,7 +16,7 @@ function NuevoProductor() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const user = useCurrentUser();
-  const { captureName } = useViewAs();
+  const { captureName, canOperate } = useViewAs();
   const boot = useQuery({
     queryKey: ["bootstrap", user?.id],
     queryFn: () => bootstrap({ data: { displayName: user?.displayName ?? null } }),
@@ -37,11 +38,14 @@ function NuevoProductor() {
         <p className="text-sm text-muted">Ciclo 26-27</p>
         <h1 className="font-display text-3xl font-medium tracking-tight">Capturar productor</h1>
         <p className="mt-1 text-sm text-muted">
-          {captureName
-            ? `Queda a nombre de ${captureName}. Confirma los datos básicos y guarda.`
-            : "Llena lo que sepas. Confirma los datos básicos; lo demás se puede completar después."}
+          {canOperate
+            ? "Busca primero si ya existe. Al capturar elige su cartera y quién le dará atención."
+            : captureName
+              ? `Queda a nombre de ${captureName}. Confirma los datos básicos y guarda.`
+              : "Llena lo que sepas. Confirma los datos básicos; lo demás se puede completar después."}
         </p>
       </header>
+      {canOperate ? <ReceptionSearch /> : null}
       <ProducerForm
         defaultAgent={captureName || boot.data?.profile.displayName}
         submitLabel="Guardar productor"

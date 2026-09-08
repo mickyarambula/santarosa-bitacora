@@ -84,6 +84,22 @@ export async function consolidateAccounts(
     }>`select count(*)::int as n from profiles where role='gerente' and status='activo' and user_id<>${data.sourceId} and merged_into_user_id is null`;
     if (!others[0]?.n) throw new Error("Debe quedar una gerencia activa.");
   }
+  if (
+    plan.target.role === "comisionista" &&
+    (
+      await sql`select id from producers where attention_user_id=${data.sourceId} and (portfolio_kind<>'comisionista' or owner_user_id not in (${data.sourceId},${data.targetId}))`
+    ).length
+  )
+    throw new Error("Reasigna la atención de las otras carteras antes de unificar esta cuenta.");
+  if (
+    plan.target.role === "comisionista" &&
+    (
+      await sql`select t.id from producer_tasks t join producers p on p.id=t.producer_id where t.assignee_id=${data.sourceId} and t.status in ('pendiente','esperando') and (p.portfolio_kind<>'comisionista' or p.owner_user_id not in (${data.sourceId},${data.targetId}))`
+    ).length
+  )
+    throw new Error("Reasigna las tareas de otras carteras antes de unificar esta cuenta.");
+  await sql`update producers set attention_user_id=${data.targetId} where attention_user_id=${data.sourceId}`;
+  await sql`update producer_tasks set assignee_id=${data.targetId},version=${randomUUID()},updated_at=now() where assignee_id=${data.sourceId} and status in ('pendiente','esperando')`;
   await sql`update producers set owner_user_id=${data.targetId},comisionista_name=${plan.target.display_name},updated_at=now() where owner_user_id in (${data.sourceId},${data.targetId})`;
   await sql`update producer_groups set owner_user_id=${data.targetId},comisionista_name=${plan.target.display_name},updated_at=now() where owner_user_id in (${data.sourceId},${data.targetId})`;
   await sql`update visits v set owner_user_id=${data.targetId} from producers p where p.id=v.producer_id and p.owner_user_id=${data.targetId}`;

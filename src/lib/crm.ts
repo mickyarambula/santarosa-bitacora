@@ -100,7 +100,7 @@ export const MINE_SCOPE = "__mine__";
 function agentScope(profile: Profile, agentRaw?: string | null) {
   const raw = agentRaw?.trim() ?? "";
   if (raw === MINE_SCOPE) return { mine: true, agent: "" };
-  return { mine: profile.role !== "gerente", agent: raw };
+  return { mine: profile.role === "comisionista", agent: raw };
 }
 
 type ProducerRow = Record<string, unknown>;
@@ -143,7 +143,11 @@ function mapProducer(row: ProducerRow): Producer {
   const relation = parseRelation(row.relation, bool(row.is_new));
   return {
     id: String(row.id),
-    ownerUserId: String(row.owner_user_id),
+    ownerUserId: row.owner_user_id ? String(row.owner_user_id) : "",
+    portfolioKind: (row.portfolio_kind ?? "comisionista") as Producer["portfolioKind"],
+    attentionUserId: row.attention_user_id ? String(row.attention_user_id) : null,
+    capturedBy: row.captured_by ? String(row.captured_by) : null,
+    intakeChannel: row.intake_channel ? String(row.intake_channel) : null,
     comisionistaName: String(row.comisionista_name),
     name: String(row.name),
     businessUnit: (row.business_unit === "directo"
@@ -224,7 +228,7 @@ function mapVisit(row: ProducerRow): Visit {
     id: String(row.id),
     producerId: String(row.producer_id),
     producerName: String(row.producer_name ?? ""),
-    ownerUserId: String(row.owner_user_id),
+    ownerUserId: row.owner_user_id ? String(row.owner_user_id) : "",
     scheduledAt: iso(row.scheduled_at),
     place: row.place ? String(row.place) : null,
     purpose: row.purpose ? String(row.purpose) : null,
@@ -383,14 +387,18 @@ async function getSessionName(userId: string): Promise<string | null> {
   return null;
 }
 
-async function requireProfile(sql: Sql, userId: string, allowOffice = false): Promise<Profile> {
+export async function requireProfile(
+  sql: Sql,
+  userId: string,
+  allowOffice = false,
+): Promise<Profile> {
   const rows = await sql<ProfileRow>`select * from profiles where user_id = ${userId} limit 1`;
   if (!rows[0]) throw new Error("Tu perfil está pendiente. Vuelve a entrar al CRM.");
   const profile = mapProfile(rows[0]);
   const revoked = await sql`select user_id from revoked_users where user_id = ${userId}`;
   if (profile.status === "bloqueado" || revoked.length) throw new Error("LOCKED");
   if (profile.role === "oficina" && !allowOffice)
-    throw new Error("Este acceso es de Oficina. Abre tus expedientes asignados.");
+    throw new Error("Esta función requiere permisos de Gerencia.");
   return profile;
 }
 
@@ -403,11 +411,7 @@ async function assertOfficeFile(sql: Sql, p: Profile, id: string) {
   const rows =
     await sql<ProducerRow>`select * from producers where id=${id} and archived_at is null`;
   const row = rows[0];
-  if (
-    !row ||
-    (p.role !== "gerente" &&
-      (p.role !== "oficina" || !p.officeOwnerIds?.includes(String(row.owner_user_id))))
-  )
+  if (!row || (p.role !== "gerente" && p.role !== "oficina"))
     throw new Error("Expediente fuera de tus carteras asignadas.");
   return row;
 }
@@ -441,7 +445,7 @@ async function assertNoDuplicate(
   const list: DupRow[] = rows.map((r) => ({
     id: String(r.id),
     name: String(r.name),
-    ownerUserId: String(r.owner_user_id),
+    ownerUserId: r.owner_user_id ? String(r.owner_user_id) : "",
     comisionistaName: String(r.comisionista_name),
     zone: String(r.zone ?? ""),
     phone: r.phone ? String(r.phone) : null,
@@ -489,10 +493,10 @@ async function loadGroup(
     from producer_groups where id = ${groupId} limit 1
   `;
   const g = rows[0];
-  if (!g || (profile.role !== "gerente" && g.owner_user_id !== profile.userId)) return null;
+  if (!g || (profile.role === "comisionista" && g.owner_user_id !== profile.userId)) return null;
   const memberRows = await sql<ProducerRow>`
     select * from producers where archived_at is null and group_id = ${groupId} and cycle = ${CYCLE}
-      and (${profile.role === "gerente"} or owner_user_id = ${profile.userId}) order by name
+      and (${profile.role !== "comisionista"} or owner_user_id = ${profile.userId}) order by name
   `;
   const producers = await withGroupMeta(sql, memberRows.map(mapProducer));
   const titularId = g.titular_producer_id ? String(g.titular_producer_id) : null;
@@ -501,7 +505,7 @@ async function loadGroup(
   return {
     id: String(g.id),
     name: String(g.name),
-    ownerUserId: String(g.owner_user_id),
+    ownerUserId: g.owner_user_id ? String(g.owner_user_id) : "",
     comisionistaName: String(g.comisionista_name),
     titularProducerId: titular?.id ?? null,
     titularName: titular?.name ?? null,
@@ -582,16 +586,21 @@ async function attachToGroup(
   const newName = (opts.newGroupName ?? "").trim();
   if (!groupId && newName) {
     groupId = newId("grp");
-    await sql`insert into producer_groups (id, name, owner_user_id, comisionista_name, cycle)
-      values (${groupId}, ${newName}, ${producer.ownerUserId}, ${producer.comisionistaName}, ${CYCLE})`;
+    await sql`insert into producer_groups (id, name, owner_user_id, comisionista_name, cycle, portfolio_kind)
+      values (${groupId}, ${newName}, ${producer.ownerUserId || null}, ${producer.comisionistaName}, ${CYCLE}, ${producer.portfolioKind ?? "comisionista"})`;
   }
   if (groupId) {
     const rows = await sql<{
       owner_user_id: string;
       cycle: string;
-    }>`select owner_user_id, cycle from producer_groups where id = ${groupId}`;
+      portfolio_kind: string;
+    }>`select owner_user_id, cycle, portfolio_kind from producer_groups where id = ${groupId}`;
     if (!rows[0]) throw new Error("No encontramos ese grupo.");
-    if (rows[0].cycle !== CYCLE || rows[0].owner_user_id !== producer.ownerUserId) {
+    if (
+      rows[0].cycle !== CYCLE ||
+      (rows[0].owner_user_id ?? "") !== producer.ownerUserId ||
+      rows[0].portfolio_kind !== producer.portfolioKind
+    ) {
       throw new Error(
         "El grupo y sus fichas deben tener el mismo responsable. Pide a gerencia que los asigne primero.",
       );
@@ -619,19 +628,41 @@ async function resolveOwner(
   me: Profile,
   requested?: string,
   current?: Producer,
-): Promise<{ userId: string; displayName: string }> {
+): Promise<{ userId: string | null; displayName: string }> {
+  if (current && current.portfolioKind !== "comisionista") {
+    if (requested) throw new Error("Cambia la cartera desde Asignación.");
+    return { userId: null, displayName: current.comisionistaName };
+  }
   const id = requested || current?.ownerUserId || me.userId;
-  if (me.role !== "gerente" && id !== me.userId)
+  if (me.role === "comisionista" && id !== me.userId)
     throw new Error("Solo gerencia puede asignar una cartera.");
-  const rows = await sql<ProfileRow>`select * from profiles where user_id = ${id}`;
+  if (current && id !== current.ownerUserId)
+    throw new Error("Cambia la cartera desde Asignación, con su motivo y revisión de tareas.");
+  const rows = await sql<ProfileRow>`select * from profiles where user_id=${id}`;
   if (!rows[0]) throw new Error("Elige una cuenta real como responsable.");
   if (rows[0].role === "oficina")
-    throw new Error(
-      "Oficina revisa expedientes; elige un responsable de campo o gerencia para la cartera.",
-    );
-  if (id !== current?.ownerUserId && rows[0].status !== "activo")
+    throw new Error("Elige un comisionista; Oficina puede atender la cartera de empresa.");
+  if (id !== current?.ownerUserId && (rows[0].status !== "activo" || rows[0].merged_into_user_id))
     throw new Error("El responsable debe ser una cuenta activa.");
   return { userId: id, displayName: rows[0].display_name };
+}
+export async function resolveAttention(
+  sql: Sql,
+  me: Profile,
+  id: string,
+  portfolioKind: string,
+  ownerId: string | null,
+) {
+  const p = (
+    await sql<ProfileRow>`select * from profiles where user_id=${id} and status='activo' and merged_into_user_id is null`
+  )[0];
+  if (!p || (await sql`select user_id from revoked_users where user_id=${id}`).length)
+    throw new Error("Elige una persona activa para atender.");
+  if (p.role === "comisionista" && (portfolioKind !== "comisionista" || id !== ownerId))
+    throw new Error("La atención corresponde al comisionista de la cartera, Oficina o Gerencia.");
+  if (me.role === "comisionista" && id !== me.userId)
+    throw new Error("Oficina o Gerencia asignan la atención compartida.");
+  return p.display_name;
 }
 
 async function assertStageChange(sql: Sql, profile: Profile, stage: string, previous?: Producer) {
@@ -663,7 +694,7 @@ async function assertStageChange(sql: Sql, profile: Profile, stage: string, prev
   }
 }
 
-async function logActivity(
+export async function logActivity(
   sql: Sql,
   producerId: string,
   userId: string,
@@ -714,7 +745,7 @@ async function listProducersRows(
   return withGroupMeta(sql, rows.map(mapProducer));
 }
 
-async function assertCanEdit(
+export async function assertCanEdit(
   sql: Sql,
   profile: Profile,
   producerId: string,
@@ -723,7 +754,7 @@ async function assertCanEdit(
   const rows = await sql<ProducerRow>`select * from producers where id = ${producerId} limit 1`;
   const producer = rows[0] ? mapProducer(rows[0]) : null;
   if (!producer) throw new Error("No encontramos a ese productor.");
-  if (profile.role !== "gerente" && producer.ownerUserId !== profile.userId) {
+  if (profile.role === "comisionista" && producer.ownerUserId !== profile.userId) {
     throw new Error("Este productor lo lleva otro comisionista.");
   }
   if (producer.archivedAt && !allowArchived)
@@ -941,7 +972,7 @@ export const updateMyProfile = createServerFn({ method: "POST" })
   .validator((d: { displayName: string; phone?: string | null }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const displayName = data.displayName.trim();
       if (!displayName) throw new Error("Escribe cómo te dicen.");
       const phone = data.phone?.trim() || null;
@@ -983,10 +1014,10 @@ export const listTeam = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const me = await requireProfile(sql, context.userId);
+    const me = await requireProfile(sql, context.userId, true);
     const profiles = await sql<ProfileRow>`
       select p.*,u.email from profiles p left join "user" u on u.id=p.user_id
-      where (${me.role === "gerente"} or p.user_id=${me.userId}) and p.merged_into_user_id is null order by p.created_at asc
+      where (${me.role !== "comisionista"} or p.user_id=${me.userId}) and p.merged_into_user_id is null order by p.created_at asc
     `;
     const agents: (Profile & {
       email: string | null;
@@ -1054,6 +1085,16 @@ export const setMemberRole = createServerFn({ method: "POST" })
         (await sql`select id from producers where owner_user_id=${data.userId} limit 1`).length
       )
         throw new Error("Reasigna su cartera antes de convertir este acceso en Oficina.");
+      if (data.role === "comisionista") {
+        const foreignAttention =
+          await sql`select id from producers where attention_user_id=${data.userId} and owner_user_id is distinct from ${data.userId} limit 1`;
+        const foreignTasks =
+          await sql`select t.id from producer_tasks t join producers p on p.id=t.producer_id where t.assignee_id=${data.userId} and t.status in ('pendiente','esperando') and p.owner_user_id is distinct from ${data.userId} limit 1`;
+        if (foreignAttention.length || foreignTasks.length)
+          throw new Error(
+            "Reasigna su atención y tareas de otras carteras antes de convertir el acceso en comisionista.",
+          );
+      }
       await sql`update profiles set role=${data.role},access_admin=case when ${data.role}='gerente' then access_admin else false end,office_owner_ids='{}' where user_id=${data.userId}`;
       await writeAudit(
         sql,
@@ -1087,7 +1128,7 @@ export const listProducers = createServerFn({ method: "GET" })
   )
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const producers = await listProducersRows(sql, profile, data);
     return { profile, producers };
   });
@@ -1097,8 +1138,17 @@ export const getProducer = createServerFn({ method: "GET" })
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }): Promise<ProducerDetail & { profile: Profile }> => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const producer = await assertCanEdit(sql, profile, data.id, true);
+    const people = await sql<{
+      user_id: string;
+      display_name: string;
+    }>`select user_id,display_name from profiles where user_id=any(${[producer.attentionUserId, producer.capturedBy].filter(Boolean)})`;
+    producer.attentionName =
+      people.find((p) => p.user_id === producer.attentionUserId)?.display_name ?? null;
+    producer.capturedName =
+      people.find((p) => p.user_id === producer.capturedBy)?.display_name ?? null;
+
     const docRows = await sql<ProducerRow>`
       select * from documents where producer_id = ${producer.id} order by doc_type
     `;
@@ -1165,8 +1215,21 @@ export const createProducer = createServerFn({ method: "POST" })
   .validator((d: ProducerInput) => producerInputSchema.parse(d))
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
-      const owner = await resolveOwner(sql, profile, data.ownerUserId);
+      const profile = await requireProfile(sql, context.userId, true);
+      const kind =
+        data.portfolioKind ?? (profile.role === "oficina" ? "pendiente" : "comisionista");
+      if (profile.role === "comisionista" && kind !== "comisionista")
+        throw new Error("Oficina o Gerencia registran la cartera de empresa.");
+      const owner =
+        kind === "comisionista"
+          ? await resolveOwner(sql, profile, data.ownerUserId)
+          : {
+              userId: null,
+              displayName: kind === "empresa" ? "Cartera de empresa" : "Pendiente de asignar",
+            };
+      const attentionId = data.attentionUserId || owner.userId || profile.userId;
+      await resolveAttention(sql, profile, attentionId, kind, owner.userId);
+      const intake = data.intakeChannel ?? (profile.role === "comisionista" ? "campo" : "oficina");
       if (data.stage === "cerrado")
         throw new Error("Guarda la ficha y registra el resultado del cierre desde Seguimiento.");
       await assertStageChange(sql, profile, data.stage);
@@ -1188,7 +1251,7 @@ export const createProducer = createServerFn({ method: "POST" })
       const isNew = relation === "nuevo";
       await assertNoDuplicate(
         sql,
-        { ...profile, userId: owner.userId },
+        { ...profile, userId: owner.userId ?? "" },
         {
           name,
           zone: data.zone,
@@ -1202,13 +1265,13 @@ export const createProducer = createServerFn({ method: "POST" })
       insert into producers (
         id, owner_user_id, comisionista_name, name, business_unit, scheme, is_new, relation,
         zone, locality, crop, hectares, yield_ton_ha, volume_ton, financing_mxn, financing_per_ha,
-        phone, email, stage, blocker, notes, cycle, hectares_requested
+        phone, email, stage, blocker, notes, cycle, hectares_requested,portfolio_kind,attention_user_id,captured_by,intake_channel
       ) values (
         ${id}, ${owner.userId}, ${comisionistaName}, ${name}, ${data.businessUnit},
         ${data.scheme}, ${isNew}, ${relation}, ${data.zone}, ${data.locality?.trim() || null},
         ${data.crop}, ${hectares}, ${yieldTonHa}, ${volume}, ${financing}, ${perHa},
         ${data.phone?.trim() || null}, ${data.email?.trim() || null}, ${data.stage}, ${data.blocker?.trim() || null},
-        ${data.notes?.trim() || null}, ${CYCLE}, ${hectares}
+        ${data.notes?.trim() || null}, ${CYCLE}, ${hectares},${kind},${attentionId},${profile.userId},${intake}
       )
     `;
       await insertDocSet(sql, id, data.scheme);
@@ -1229,10 +1292,15 @@ export const updateProducer = createServerFn({ method: "POST" })
   .validator((d: ProducerInput & { id: string }) => ({ ...producerInputSchema.parse(d), id: d.id }))
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const prev = await assertCanEdit(sql, profile, data.id);
       if (data.stage === "cerrado" && prev.stage !== "cerrado")
         throw new Error("Registra el cierre y su resultado desde Seguimiento.");
+      if (
+        (data.portfolioKind && data.portfolioKind !== prev.portfolioKind) ||
+        (data.attentionUserId && data.attentionUserId !== prev.attentionUserId)
+      )
+        throw new Error("Cambia la cartera o la atención desde Asignación, con su motivo.");
       const owner = await resolveOwner(sql, profile, data.ownerUserId, prev);
       const economicChange =
         data.hectares !== prev.hectares ||
@@ -1244,7 +1312,7 @@ export const updateProducer = createServerFn({ method: "POST" })
       if (economicChange && needsApproval(prev.stage))
         throw new Error("Primero devuelve la ficha a evaluación para revisar sus montos.");
       await assertStageChange(sql, profile, data.stage, { ...prev, scheme: data.scheme });
-      if (owner.userId !== prev.ownerUserId && prev.groupId) {
+      if ((owner.userId ?? "") !== prev.ownerUserId && prev.groupId) {
         if (data.groupId !== prev.groupId || data.newGroupName)
           throw new Error("Cambia el grupo y el responsable en operaciones separadas.");
         await sql`update producer_groups set owner_user_id = ${owner.userId}, comisionista_name = ${owner.displayName}, updated_at = now() where id = ${prev.groupId}`;
@@ -1281,7 +1349,7 @@ export const updateProducer = createServerFn({ method: "POST" })
       const comisionistaName = owner.displayName;
       await assertNoDuplicate(
         sql,
-        { ...profile, userId: owner.userId },
+        { ...profile, userId: owner.userId ?? "" },
         {
           id: prev.id,
           name,
@@ -1320,7 +1388,7 @@ export const updateProducer = createServerFn({ method: "POST" })
         updated_at = now()
       where id = ${prev.id}
     `;
-      if (owner.userId !== prev.ownerUserId && !prev.groupId) {
+      if ((owner.userId ?? "") !== prev.ownerUserId && !prev.groupId) {
         await sql`update visits set owner_user_id = ${owner.userId} where producer_id = ${prev.id}`;
         await logActivity(
           sql,
@@ -1398,7 +1466,7 @@ export const setStage = createServerFn({ method: "POST" })
   .validator((d: { id: string; stage: StageId; closeKind?: string; reason?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const prev = await assertCanEdit(sql, profile, data.id);
       if (data.stage === "cerrado" && prev.stage !== "cerrado" && !("closeKind" in data))
         throw new Error("Registra el cierre y su resultado desde Seguimiento.");
@@ -1438,7 +1506,7 @@ export const deleteProducer = createServerFn({ method: "POST" })
   .validator((d: { id: string; reason?: string }) => d)
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId);
+      const me = await requireProfile(sql, context.userId, true);
       const p = await assertCanEdit(sql, me, data.id);
       if (needsApproval(p.stage) && me.role !== "gerente")
         throw new Error("Pide a gerencia archivar una ficha habilitada o en acopio.");
@@ -1485,9 +1553,9 @@ export const listArchivedProducers = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const me = await requireProfile(sql, context.userId);
+    const me = await requireProfile(sql, context.userId, true);
     const rows =
-      await sql<ProducerRow>`select * from producers where archived_at is not null and cycle=${CYCLE} and (${me.role === "gerente"} or owner_user_id=${me.userId}) order by archived_at desc`;
+      await sql<ProducerRow>`select * from producers where archived_at is not null and cycle=${CYCLE} and (${me.role !== "comisionista"} or owner_user_id=${me.userId}) order by archived_at desc`;
     return { items: rows.map(mapProducer) };
   });
 
@@ -1538,7 +1606,11 @@ function docRank(status: string): number {
 }
 
 async function mergeProducerInto(sql: Sql, keep: Producer, drop: Producer, userId: string) {
-  if (keep.groupId !== drop.groupId || keep.ownerUserId !== drop.ownerUserId)
+  if (
+    keep.groupId !== drop.groupId ||
+    keep.ownerUserId !== drop.ownerUserId ||
+    keep.portfolioKind !== drop.portfolioKind
+  )
     throw new Error(
       "Antes de fusionar, ambas fichas deben pertenecer al mismo responsable y grupo.",
     );
@@ -1600,6 +1672,9 @@ async function mergeProducerInto(sql: Sql, keep: Producer, drop: Producer, userI
     }
   }
 
+  await sql`update producer_tasks set legacy_primary=false where producer_id=${drop.id}`;
+  await sql`update producer_tasks set producer_id=${keep.id} where producer_id=${drop.id}`;
+  await sql`update producer_communications set producer_id=${keep.id} where producer_id=${drop.id}`;
   await sql`update visits set producer_id = ${keep.id} where producer_id = ${drop.id}`;
   await sql`update activity set producer_id = ${keep.id} where producer_id = ${drop.id}`;
   await sql`update touches set producer_id = ${keep.id} where producer_id = ${drop.id}`;
@@ -1643,7 +1718,7 @@ export const listGroups = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const rows = await sql<{ id: string }>`
       select id from producer_groups
@@ -1686,7 +1761,7 @@ export const formGroupFromIds = createServerFn({ method: "POST" })
   .validator((d: { producerIds: string[]; name: string; titularId?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId);
+      const me = await requireProfile(sql, context.userId, true);
       const ids = [...new Set(data.producerIds.filter(Boolean))];
       if (ids.length < 2) throw new Error("Se necesitan al menos dos nombres para armar el grupo.");
       const name = data.name.trim();
@@ -1695,7 +1770,7 @@ export const formGroupFromIds = createServerFn({ method: "POST" })
       for (const id of ids) {
         members.push(await assertCanEdit(sql, me, id));
       }
-      const agents = new Set(members.map((p) => p.ownerUserId));
+      const agents = new Set(members.map((p) => `${p.portfolioKind}:${p.ownerUserId}`));
       if (agents.size > 1) {
         throw new Error("El grupo tiene que llevarlo un solo comisionista.");
       }
@@ -1717,8 +1792,8 @@ export const formGroupFromIds = createServerFn({ method: "POST" })
       const titularFull = members.find((p) => p.id === titular.id)!;
       const gid = newId("grp");
       await sql`
-      insert into producer_groups (id, name, owner_user_id, comisionista_name, titular_producer_id, cycle)
-      values (${gid}, ${name}, ${titularFull.ownerUserId}, ${titularFull.comisionistaName}, ${titularFull.id}, ${CYCLE})
+      insert into producer_groups (id, name, owner_user_id, comisionista_name, titular_producer_id, cycle,portfolio_kind)
+      values (${gid}, ${name}, ${titularFull.ownerUserId || null}, ${titularFull.comisionistaName}, ${titularFull.id}, ${CYCLE},${titularFull.portfolioKind ?? "comisionista"})
     `;
       for (const p of members) {
         await sql`
@@ -1823,7 +1898,7 @@ export const createVisit = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const producer = await assertCanEdit(sql, profile, data.producerId);
       const when = parseLocalDateTime(data.scheduledAt);
       if (Number.isNaN(when.getTime())) throw new Error("La fecha de la cita no es válida.");
@@ -1831,7 +1906,7 @@ export const createVisit = createServerFn({ method: "POST" })
       await sql`
       insert into visits (id, producer_id, owner_user_id, scheduled_at, place, purpose, notes)
       values (
-        ${id}, ${producer.id}, ${producer.ownerUserId}, ${when.toISOString()},
+        ${id}, ${producer.id}, ${producer.ownerUserId || null}, ${when.toISOString()},
         ${data.place?.trim() || null}, ${data.purpose?.trim() || null}, ${data.notes?.trim() || null}
       )
     `;
@@ -1864,7 +1939,7 @@ export const createTouch = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const producer = await assertCanEdit(sql, profile, data.producerId);
       const channel = data.channel.trim() || "nota";
       if (!["llamada", "whatsapp", "mensaje", "correo", "visita", "nota"].includes(channel))
@@ -1901,7 +1976,7 @@ export const setVisitStatus = createServerFn({ method: "POST" })
   .validator((d: { id: string; status: Visit["status"]; notes?: string | null }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const rows = await sql<ProducerRow>`
       select v.*, p.owner_user_id, p.id as producer_id, p.name as producer_name
       from visits v join producers p on p.id = v.producer_id
@@ -1909,7 +1984,7 @@ export const setVisitStatus = createServerFn({ method: "POST" })
     `;
       const row = rows[0];
       if (!row) throw new Error("Cita no encontrada.");
-      if (profile.role !== "gerente" && String(row.owner_user_id) !== profile.userId) {
+      if (profile.role === "comisionista" && String(row.owner_user_id) !== profile.userId) {
         throw new Error("Esta cita es de otro comisionista.");
       }
       if (!VISIT_STATUS.some((s) => s.id === data.status))
@@ -1932,6 +2007,8 @@ export const setVisitStatus = createServerFn({ method: "POST" })
       set status = ${data.status}, notes = coalesce(${result}, notes)
       where id = ${data.id}
     `;
+      if (String(row.status) !== data.status)
+        await sql`update producer_tasks set status=${data.status === "programada" ? "pendiente" : data.status === "cumplida" ? "atendida" : "cancelada"},result=${result || data.status},completed_at=${data.status === "programada" ? null : new Date().toISOString()},version=${newId("task")},updated_at=now() where visit_id=${data.id}`;
       if (
         String(row.status) !== data.status ||
         (data.notes !== undefined && data.notes !== row.notes)
@@ -1962,14 +2039,14 @@ export const listVisits = createServerFn({ method: "GET" })
   .validator((d: { range?: "hoy" | "semana" | "todas"; agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const range = data.range ?? "semana";
     const rows = await sql<ProducerRow>`
       select v.*, p.name as producer_name, p.phone, p.zone
       from visits v
       join producers p on p.id = v.producer_id
-      where p.archived_at is null and (${mine} = false or v.owner_user_id = ${profile.userId})
+      where p.archived_at is null and (${mine} = false or p.owner_user_id = ${profile.userId})
         and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
@@ -1984,7 +2061,7 @@ export const getDashboard = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }): Promise<Dashboard> => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const list = await listProducersRows(sql, profile, { agent: data.agent });
     const live = list.filter((p) => p.rejectionKind !== "total" && p.stage !== "cerrado");
@@ -2011,7 +2088,7 @@ export const getDashboard = createServerFn({ method: "GET" })
 
     const agentMap = new Map<string, AgentCount>();
     for (const p of live) {
-      const cur = agentMap.get(p.ownerUserId) ?? {
+      const cur = agentMap.get(`${p.portfolioKind}:${p.ownerUserId}`) ?? {
         name: p.comisionistaName,
         userId: p.ownerUserId,
         count: 0,
@@ -2023,7 +2100,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       cur.hectares += p.hectares;
       cur.volume += p.volumeTon;
       cur.financing += p.financingMxn;
-      agentMap.set(p.ownerUserId, cur);
+      agentMap.set(`${p.portfolioKind}:${p.ownerUserId}`, cur);
     }
     const agents = [...agentMap.values()].sort((a, b) => b.volume - a.volume);
 
@@ -2055,7 +2132,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at >= now() - interval '1 day'
         and v.scheduled_at < now() + interval '2 days'
-        and (${mine} = false or v.owner_user_id = ${profile.userId})
+        and (${mine} = false or p.owner_user_id = ${profile.userId})
         and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
@@ -2068,7 +2145,7 @@ export const getDashboard = createServerFn({ method: "GET" })
       join producers p on p.id = v.producer_id
       where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at > now()
-        and (${mine} = false or v.owner_user_id = ${profile.userId})
+        and (${mine} = false or p.owner_user_id = ${profile.userId})
         and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
       limit 24
@@ -2232,7 +2309,7 @@ export const exportCsv = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const producers = await listProducersRows(sql, profile, { agent: data.agent });
     const lines = [
       EXPORT_HEADERS.map((h) => `"${h.replaceAll('"', '""')}"`).join(","),
@@ -2251,7 +2328,7 @@ export const exportExcel = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const producers = await listProducersRows(sql, profile, { agent: data.agent });
     const byAgent = new Map<string, Producer[]>();
     for (const p of producers) {
@@ -2289,9 +2366,9 @@ export const listAgentNames = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const me = await requireProfile(sql, context.userId);
+    const me = await requireProfile(sql, context.userId, true);
     const rows =
-      me.role === "gerente"
+      me.role !== "comisionista"
         ? await sql<{
             id: string;
             name: string;
@@ -2301,7 +2378,7 @@ export const listAgentNames = createServerFn({ method: "GET" })
     return {
       names: rows.map((r) => r.name),
       agents: rows.map((r) => ({
-        id: "uid:" + r.id,
+        id: r.id ? "uid:" + r.id : r.name,
         name: r.name,
         label:
           rows.filter((x) => x.name === r.name).length > 1
@@ -2315,18 +2392,18 @@ export const getCartera = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const producers = await listProducersRows(sql, profile, {});
     const map = new Map<string, Producer[]>();
     for (const p of producers) {
-      const arr = map.get(p.ownerUserId) ?? [];
+      const arr = map.get(`${p.portfolioKind}:${p.ownerUserId}`) ?? [];
       arr.push(p);
-      map.set(p.ownerUserId, arr);
+      map.set(`${p.portfolioKind}:${p.ownerUserId}`, arr);
     }
     const agents: AgentCartera[] = [...map.entries()]
-      .map(([userId, items]) => ({
+      .map(([_key, items]) => ({
         name: items[0].comisionistaName,
-        userId,
+        userId: items[0].ownerUserId,
         count: items.length,
         hectares: items.reduce((s, p) => s + p.hectares, 0),
         volume: items.reduce((s, p) => s + p.volumeTon, 0),
@@ -2346,7 +2423,7 @@ export const listReminders = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const items: ReminderItem[] = [];
 
@@ -2357,7 +2434,7 @@ export const listReminders = createServerFn({ method: "GET" })
       where p.archived_at is null and v.status = 'programada'
         and v.scheduled_at >= now() - interval '2 hours'
         and v.scheduled_at < now() + interval '2 days'
-        and (${mine} = false or v.owner_user_id = ${profile.userId})
+        and (${mine} = false or p.owner_user_id = ${profile.userId})
         and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
       order by v.scheduled_at asc
     `;
@@ -2840,7 +2917,7 @@ export const listPaperwork = createServerFn({ method: "GET" })
   .validator((d: { agent?: string; docType?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const want = (data.docType ?? "").trim();
     const rows = await sql<ProducerRow>`
@@ -3051,7 +3128,7 @@ export const listAnnouncements = createServerFn({ method: "GET" })
   .validator((d: { includeHistory?: boolean } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const me = await requireProfile(sql, context.userId);
+    const me = await requireProfile(sql, context.userId, true);
     if (data.includeHistory && me.role !== "gerente")
       throw new Error("Solo gerencia puede ver los avisos retirados.");
     const rows = await sql<ProducerRow>`select * from announcements
@@ -3202,7 +3279,7 @@ export const listOfficePeople = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
   .handler(async ({ context }) => {
     const sql = await getSql();
-    await requireProfile(sql, context.userId);
+    await requireProfile(sql, context.userId, true);
     const rows = await sql<Record<string, unknown>>`
       select id, name, title, phone, for_invite, for_aviso
       from office_people
@@ -3268,7 +3345,7 @@ export const pingOffice = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
-      const profile = await requireProfile(sql, context.userId);
+      const profile = await requireProfile(sql, context.userId, true);
       const people = await sql<Record<string, unknown>>`
       select * from office_people where id = ${data.personId} limit 1
     `;
@@ -3365,7 +3442,7 @@ export const getOfficeDigest = createServerFn({ method: "GET" })
   .validator((d: { agent?: string } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql();
-    const profile = await requireProfile(sql, context.userId);
+    const profile = await requireProfile(sql, context.userId, true);
     const peopleRows = await sql<Record<string, unknown>>`
       select id, name, title, phone, for_invite, for_aviso
       from office_people where for_aviso = true order by name
@@ -3389,7 +3466,7 @@ async function buildOfficeDigest(sql: Sql, profile: Profile, agentRaw?: string) 
     where p.archived_at is null and v.status = 'programada'
       and v.scheduled_at >= now() - interval '1 hour'
       and v.scheduled_at < now() + interval '2 days'
-      and (${mine} = false or v.owner_user_id = ${profile.userId})
+      and (${mine} = false or p.owner_user_id = ${profile.userId})
       and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
     order by v.scheduled_at asc
     limit 8
@@ -3467,7 +3544,7 @@ export const rescheduleVisit = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId);
+      const me = await requireProfile(sql, context.userId, true);
       const rows = await sql<ProducerRow>`select * from visits where id=${data.id}`;
       const row = rows[0];
       if (!row) throw new Error("Cita no encontrada.");
@@ -3488,6 +3565,7 @@ export const rescheduleVisit = createServerFn({ method: "POST" })
         "cita",
         `Cita reprogramada: ${formatAppDateTime(iso(row.scheduled_at))} → ${formatAppDateTime(when)}. Motivo: ${reason}.`,
       );
+      await sql`update producer_tasks set due_at=${when.toISOString()},version=${newId("task")},updated_at=now() where visit_id=${data.id} and status in ('pendiente','esperando')`;
       await writeAudit(sql, me, "cita", data.id, "reprogramar", row, {
         scheduledAt: when.toISOString(),
         place: data.place,
@@ -3517,7 +3595,7 @@ export const getNextAction = createServerFn({ method: "GET" })
   .validator((d: { producerId: string }) => d)
   .handler(async ({ context, data }) => {
     const sql = await getSql(),
-      me = await requireProfile(sql, context.userId);
+      me = await requireProfile(sql, context.userId, true);
     return readNextAction(sql, await assertCanEdit(sql, me, data.producerId));
   });
 export const saveNextAction = createServerFn({ method: "POST" })
@@ -3533,7 +3611,7 @@ export const saveNextAction = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId),
+      const me = await requireProfile(sql, context.userId, true),
         producer = await assertCanEdit(sql, me, data.producerId);
       const before = await readNextAction(sql, producer);
       if (before.closed)
@@ -3553,6 +3631,10 @@ export const saveNextAction = createServerFn({ method: "POST" })
         throw new Error("Anota por qué cambia el seguimiento (hasta 1,000 caracteres).");
       const version = newId("seg");
       await sql`update producers set next_action=${text},next_action_at=${date.toISOString()},next_action_version=${version},updated_at=now() where id=${producer.id}`;
+      await sql`insert into producer_tasks(id,producer_id,title,assignee_id,due_at,created_by,version,legacy_primary)
+        values(${"legacy-" + producer.id},${producer.id},${text},${producer.attentionUserId || producer.ownerUserId || me.userId},${date.toISOString()},${me.userId},${version},true)
+        on conflict(producer_id) where legacy_primary do update set title=excluded.title,assignee_id=excluded.assignee_id,due_at=excluded.due_at,status='pendiente',result=null,completed_at=null,version=excluded.version,updated_at=now()`;
+
       await writeAudit(
         sql,
         me,
@@ -3586,7 +3668,7 @@ export const finishNextAction = createServerFn({ method: "POST" })
   )
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId),
+      const me = await requireProfile(sql, context.userId, true),
         producer = await assertCanEdit(sql, me, data.producerId),
         before = await readNextAction(sql, producer);
       if (!["atendida", "cancelada"].includes(data.status)) throw new Error("Resultado no válido.");
@@ -3596,6 +3678,8 @@ export const finishNextAction = createServerFn({ method: "POST" })
       if (!outcome || outcome.length > 1000)
         throw new Error("Anota el resultado o motivo en hasta 1,000 caracteres.");
       await sql`update producers set next_action=null,next_action_at=null,next_action_version=${newId("seg")},updated_at=now() where id=${producer.id}`;
+      await sql`update producer_tasks set status=${data.status},result=${outcome},version=${newId("task")},completed_at=now(),updated_at=now() where producer_id=${producer.id} and legacy_primary`;
+
       await writeAudit(sql, me, "seguimiento", producer.id, data.status, before, {
         outcome,
         ownerId: producer.ownerUserId,
@@ -3615,7 +3699,7 @@ export const listNextActions = createServerFn({ method: "GET" })
   .validator((d: { agent?: string; view?: "pendientes" | "sin_accion" } | undefined) => d ?? {})
   .handler(async ({ context, data }) => {
     const sql = await getSql(),
-      me = await requireProfile(sql, context.userId),
+      me = await requireProfile(sql, context.userId, true),
       { mine, agent } = agentScope(me, data.agent);
     const view = data.view ?? "pendientes";
     if (!["pendientes", "sin_accion"].includes(view)) throw new Error("Filtro no válido.");
@@ -3646,7 +3730,7 @@ export const confirmOfficePing = createServerFn({ method: "POST" })
   .validator((d: { id: string }) => d)
   .handler(async ({ context, data }) =>
     (await getSql()).transaction(async (sql) => {
-      const me = await requireProfile(sql, context.userId);
+      const me = await requireProfile(sql, context.userId, true);
       const rows =
         await sql<ProducerRow>`select * from office_pings where id=${data.id} and user_id=${me.userId}`;
       const p = rows[0];
@@ -3696,30 +3780,13 @@ export const setAccessAdmin = createServerFn({ method: "POST" })
 export const setOfficeAssignments = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator((d: { userId: string; ownerIds: string[]; reason: string }) => d)
-  .handler(async ({ context, data }) =>
+  .handler(async ({ context }) =>
     (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
       assertAccessAdmin(me);
-      const reason = requiredReason(data.reason);
-      const ids = [...new Set(data.ownerIds)];
-      const target = (
-        await sql<ProfileRow>`select * from profiles where user_id=${data.userId} and role='oficina' and status='activo'`
-      )[0];
-      if (!target) throw new Error("Elige un acceso activo de Oficina.");
-      const owners =
-        await sql`select user_id from profiles where user_id=any(${ids}) and role in ('comisionista','gerente') and status='activo' and merged_into_user_id is null`;
-      if (owners.length !== ids.length) throw new Error("Selecciona carteras de cuentas activas.");
-      await sql`update profiles set office_owner_ids=${ids} where user_id=${data.userId}`;
-      await writeAudit(
-        sql,
-        me,
-        "cuenta",
-        data.userId,
-        "carteras_oficina",
-        { ownerIds: target.office_owner_ids },
-        { ownerIds: ids, reason },
+      throw new Error(
+        "Oficina ahora opera todas las carteras. Cambia el rol o inhabilita el acceso para retirarle esas facultades.",
       );
-      return { ok: true as const };
     }),
   );
 
@@ -3731,7 +3798,7 @@ export const listOfficeFiles = createServerFn({ method: "GET" })
     if (!["oficina", "gerente"].includes(me.role))
       throw new Error("Solo Oficina y gerencia revisan expedientes.");
     const rows =
-      await sql<ProducerRow>`select p.id,p.name,p.comisionista_name,p.scheme,p.stage from producers p where p.cycle=${CYCLE} and p.archived_at is null and p.stage<>'cerrado' and (${me.role === "gerente"} or p.owner_user_id=any(${me.officeOwnerIds ?? []})) order by p.name`;
+      await sql<ProducerRow>`select p.id,p.name,p.comisionista_name,p.scheme,p.stage from producers p where p.cycle=${CYCLE} and p.archived_at is null and p.stage<>'cerrado' and (${me.role !== "comisionista"} or p.owner_user_id=${me.userId}) order by p.name`;
     return {
       items: rows.map((r) => ({
         id: String(r.id),

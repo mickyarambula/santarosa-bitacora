@@ -122,9 +122,14 @@ test("group reassignment transfers all members and visits together", async () =>
   const groupId = (await rows("select id from producer_groups"))[0].id;
   await create("Beta", { groupId });
   await h.call("createVisit", "manager", { producerId: a.id, scheduledAt: "2026-09-07T14:00" });
-  await h.call("updateProducer", "manager", {
-    ...input("Alfa", { ownerUserId: "agent_b", groupId }),
+  await h.call("assignPortfolio", "manager", {
     id: a.id,
+    portfolioKind: "comisionista",
+    ownerUserId: "agent_b",
+    attentionUserId: "agent_b",
+    reason: "Reasignación revisada del grupo",
+    confirmGroup: true,
+    expectedUpdatedAt: (await h.call("getProducer", "manager", { id: a.id })).producer.updatedAt,
   });
   assert.equal((await h.call("listProducers", "agent_b")).producers.length, 2);
   assert.equal((await h.call("listVisits", "agent_b", { range: "todas" })).visits.length, 1);
@@ -245,9 +250,14 @@ test("group reassignment with shared phones preserves the complete group", async
   const a = await create("Alfa", { newGroupName: "Grupo A", phone: "6681112233" });
   const groupId = (await rows("select id from producer_groups"))[0].id;
   await create("Beta", { groupId, phone: "6681112233" });
-  await h.call("updateProducer", "manager", {
-    ...input("Alfa", { groupId, phone: "6681112233", ownerUserId: "agent_b" }),
+  await h.call("assignPortfolio", "manager", {
     id: a.id,
+    portfolioKind: "comisionista",
+    ownerUserId: "agent_b",
+    attentionUserId: "agent_b",
+    reason: "Reasignación revisada del grupo",
+    confirmGroup: true,
+    expectedUpdatedAt: (await h.call("getProducer", "manager", { id: a.id })).producer.updatedAt,
   });
   assert.equal((await h.call("listGroups", "agent_b")).groups[0].members, 2);
 });
@@ -256,7 +266,7 @@ test("document repair is explicit: reading never writes, saving restores missing
   await h.db.query("delete from documents where producer_id=$1 and doc_type='ine'", [p.id]);
   const detail = await h.call("getProducer", "agent_a", { id: p.id });
   assert.equal(detail.documents.length, 13);
-  assert.equal(detail.documents.filter(d => d.missing).length, 1);
+  assert.equal(detail.documents.filter((d) => d.missing).length, 1);
   assert.equal((await rows("select * from documents")).length, 12);
   await h.call("updateProducer", "agent_a", { ...input("Alfa"), id: p.id });
   assert.equal((await rows("select * from documents")).length, 13);
