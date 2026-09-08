@@ -1,3 +1,5 @@
+import { writeAudit } from "./crm-audit";
+import { previewConsolidation, consolidateAccounts } from "./account-consolidation";
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql } from "@/lib/db";
@@ -112,6 +114,8 @@ type ProfileRow = {
   display_name: string;
   role: string;
   status?: string;
+  merged_into_user_id?: string | null;
+  email?: string | null;
   phone: string | null;
   created_at: string | Date;
 };
@@ -126,6 +130,7 @@ function mapProfile(row: ProfileRow): Profile {
   return {
     userId: row.user_id,
     displayName: row.display_name,
+    mergedIntoUserId: row.merged_into_user_id ?? null,
     role: (row.role === "gerente" ? "gerente" : "comisionista") as Role,
     status: row.status === "bloqueado" ? "bloqueado" : "activo",
     phone: row.phone,
@@ -278,7 +283,7 @@ async function ensureProfile(
   accessCode?: string | null,
 ): Promise<Profile> {
   const existing = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
     from profiles where user_id = ${userId} limit 1
   `;
   const revoked = await sql<{ user_id: string }>`
@@ -309,7 +314,7 @@ async function ensureProfile(
     values (${userId}, ${name}, ${role}, ${status})
   `;
   const created = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
     from profiles where user_id = ${userId} limit 1
   `;
   return mapProfile(created[0]!);
@@ -666,6 +671,12 @@ export const bootstrap = createServerFn({ method: "POST" })
       const fromSession = await getSessionName(context.userId);
       const name = (data.displayName ?? "").trim() || fromSession;
       const profile = await ensureProfile(sql, context.userId, name, data.accessCode);
+      if (profile.mergedIntoUserId) {
+        const target = await sql<{
+          email: string;
+        }>`select email from "user" where id=${profile.mergedIntoUserId}`;
+        return { profile: { ...profile, mergedIntoEmail: target[0]?.email ?? null } };
+      }
       return { profile };
     });
   });
@@ -725,11 +736,13 @@ export const setMemberStatus = createServerFn({ method: "POST" })
         throw new Error("Estado de cuenta no válido.");
       if (data.userId === me.userId) throw new Error("No puedes inhabilitarte a ti mismo.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
       if (!target) throw new Error("No encontramos esa cuenta.");
+      if (target.mergedIntoUserId)
+        throw new Error("La cuenta unificada se conserva como referencia del historial.");
       if (data.status === "bloqueado" && target.role === "gerente") {
         const gerentes = await sql<{ n: number }>`
         select count(*)::int as n from profiles where role = 'gerente' and status = 'activo'
@@ -737,6 +750,8 @@ export const setMemberStatus = createServerFn({ method: "POST" })
         if (num(gerentes[0]?.n) <= 1)
           throw new Error("Tiene que quedar al menos una gerencia activa.");
       }
+      if (rows[0]?.merged_into_user_id)
+        throw new Error("Esta cuenta fue unificada; usa la cuenta de destino.");
       await sql`update profiles set status = ${data.status} where user_id = ${target.userId}`;
       if (data.status === "bloqueado") {
         await sql`
@@ -761,11 +776,19 @@ export const deleteMember = createServerFn({ method: "POST" })
       if (me.role !== "gerente") throw new Error("Solo gerencia puede eliminar cuentas.");
       if (data.userId === me.userId) throw new Error("No puedes borrar tu propia cuenta.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
       if (!target) throw new Error("No encontramos esa cuenta.");
+      const references =
+        await sql`select user_id from profiles where merged_into_user_id=${target.userId} limit 1`;
+      if (references.length)
+        throw new Error(
+          "Esta cuenta conserva carteras unificadas. Reasigna y revisa su historial antes de eliminarla.",
+        );
+      if (target.mergedIntoUserId)
+        throw new Error("La cuenta unificada se conserva como referencia del historial.");
       if (!namesMatchForDelete(data.confirmName, target.displayName)) {
         throw new Error("Escribe el nombre completo para confirmar que sí es esa cuenta.");
       }
@@ -811,6 +834,17 @@ export const updateMyProfile = createServerFn({ method: "POST" })
           phone = ${data.phone?.trim() || null}
       where user_id = ${profile.userId}
     `;
+      await sql`update producers set comisionista_name=${displayName} where owner_user_id=${profile.userId}`;
+      await sql`update producer_groups set comisionista_name=${displayName} where owner_user_id=${profile.userId}`;
+      await writeAudit(
+        sql,
+        profile,
+        "cuenta",
+        profile.userId,
+        "perfil",
+        { displayName: profile.displayName, phone: profile.phone },
+        { displayName, phone: data.phone?.trim() || null },
+      );
       return { ok: true as const };
     });
   });
@@ -821,10 +855,11 @@ export const listTeam = createServerFn({ method: "GET" })
     const sql = await getSql();
     const me = await requireProfile(sql, context.userId);
     const profiles = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at
-      from profiles where (${me.role === "gerente"} or user_id = ${me.userId}) order by created_at asc
+      select p.*,u.email from profiles p left join "user" u on u.id=p.user_id
+      where (${me.role === "gerente"} or p.user_id=${me.userId}) and p.merged_into_user_id is null order by p.created_at asc
     `;
     const agents: (Profile & {
+      email: string | null;
       producers: number;
       hectares: number;
       volume: number;
@@ -842,6 +877,7 @@ export const listTeam = createServerFn({ method: "GET" })
       `;
       agents.push({
         ...p,
+        email: row.email ?? null,
         producers: num(stats[0]?.n),
         hectares: num(stats[0]?.ha),
         volume: num(stats[0]?.vol),
@@ -925,12 +961,15 @@ export const getProducer = createServerFn({ method: "GET" })
       order by v.scheduled_at desc
     `;
     const actRows = await sql<ProducerRow>`
-      select * from activity where producer_id = ${producer.id} order by created_at desc limit 30
+      select a.*,coalesce(p.display_name,u.name,'Cuenta anterior') as actor_name
+      from activity a left join profiles p on p.user_id=a.user_id left join "user" u on u.id=a.user_id
+      where a.producer_id=${producer.id} order by a.created_at desc,a.id desc limit 200
     `;
     const activity: ActivityItem[] = actRows.map((r) => ({
       id: String(r.id),
       producerId: String(r.producer_id),
       userId: String(r.user_id),
+      actorName: String(r.actor_name),
       kind: String(r.kind),
       message: String(r.message),
       createdAt: iso(r.created_at),
@@ -1135,6 +1174,31 @@ export const updateProducer = createServerFn({ method: "POST" })
           `Responsable: ${prev.comisionistaName} → ${owner.displayName}.`,
         );
       }
+      const fieldChanges = [
+        ["Nombre", prev.name, name],
+        ["Teléfono", prev.phone, data.phone?.trim() || null],
+        ["Correo", prev.email, data.email?.trim() || null],
+        ["Municipio", prev.zone, data.zone],
+        ["Localidad", prev.locality, data.locality?.trim() || null],
+        ["Cultivo", prev.crop, data.crop],
+        ["Pendiente", prev.blocker, data.blocker?.trim() || null],
+        ["Notas", prev.notes, data.notes?.trim() || null],
+        ["Relación", prev.relation, relation],
+        ["Unidad", prev.businessUnit, data.businessUnit],
+      ].filter(([, before, after]) => before !== after);
+      if (fieldChanges.length)
+        await logActivity(
+          sql,
+          prev.id,
+          profile.userId,
+          "edicion",
+          fieldChanges
+            .map(
+              ([label, before, after]) =>
+                `${label}: ${before || "sin dato"} → ${after || "sin dato"}`,
+            )
+            .join("; "),
+        );
       if (economicChange)
         await logActivity(
           sql,
@@ -1608,6 +1672,27 @@ export const setVisitStatus = createServerFn({ method: "POST" })
       set status = ${data.status}, notes = coalesce(${data.notes?.trim() || null}, notes)
       where id = ${data.id}
     `;
+      if (
+        String(row.status) !== data.status ||
+        (data.notes !== undefined && data.notes !== row.notes)
+      ) {
+        await logActivity(
+          sql,
+          String(row.producer_id),
+          profile.userId,
+          "cita",
+          `Cita ${formatAppDateTime(iso(row.scheduled_at))}: ${String(row.status)} → ${data.status}${data.notes ? ` · ${data.notes}` : ""}.`,
+        );
+        await writeAudit(
+          sql,
+          profile,
+          "cita",
+          data.id,
+          "estado",
+          { status: row.status, notes: row.notes },
+          { status: data.status, notes: data.notes ?? row.notes },
+        );
+      }
       return { ok: true as const };
     });
   });
@@ -2647,53 +2732,162 @@ export const setRejection = createServerFn({ method: "POST" })
     });
   });
 
+function mapAnnouncement(r: ProducerRow): Announcement {
+  const expiresAt = r.expires_at ? iso(r.expires_at) : null;
+  return {
+    id: String(r.id),
+    authorUserId: String(r.author_user_id),
+    authorName: String(r.author_name),
+    kind: r.kind === "productores" ? "productores" : "equipo",
+    stage: r.stage ? (String(r.stage) as StageId) : null,
+    title: String(r.title),
+    body: String(r.body),
+    createdAt: iso(r.created_at),
+    updatedAt: iso(r.updated_at),
+    archivedAt: r.archived_at ? iso(r.archived_at) : null,
+    expiresAt,
+    state: r.archived_at
+      ? "retirado"
+      : expiresAt && Date.parse(expiresAt) <= Date.now()
+        ? "vencido"
+        : "vigente",
+  };
+}
+function announcementValues(data: {
+  kind: "equipo" | "productores";
+  title?: string;
+  body: string;
+  stage?: string | null;
+  expiresAt?: string | null;
+}) {
+  if (!["equipo", "productores"].includes(data.kind)) throw new Error("Tipo de aviso no válido.");
+  const body = data.body?.trim(),
+    title =
+      data.title?.trim() || (data.kind === "equipo" ? "Aviso al equipo" : "Aviso a productores");
+  if (!body || body.length > 10000 || title.length > 250)
+    throw new Error("Escribe un título y un recado de hasta 10,000 caracteres.");
+  if (data.stage && !STAGES.some((s) => s.id === data.stage)) throw new Error("Etapa no válida.");
+  const expiry = data.expiresAt ? parseLocalDateTime(data.expiresAt) : null;
+  if (expiry && Number.isNaN(expiry.getTime())) throw new Error("La vigencia no es válida.");
+  return { body, title, expiresAt: expiry?.toISOString() ?? null };
+}
 export const listAnnouncements = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .handler(async ({ context }) => {
+  .validator((d: { includeHistory?: boolean } | undefined) => d ?? {})
+  .handler(async ({ context, data }) => {
     const sql = await getSql();
-    await requireProfile(sql, context.userId);
-    const rows = await sql<ProducerRow>`
-      select * from announcements order by created_at desc limit 20
-    `;
-    const items: Announcement[] = rows.map((r) => ({
-      id: String(r.id),
-      authorUserId: String(r.author_user_id),
-      authorName: String(r.author_name),
-      kind: r.kind === "productores" ? "productores" : "equipo",
-      stage: r.stage ? (String(r.stage) as StageId) : null,
-      title: String(r.title ?? ""),
-      body: String(r.body ?? ""),
-      createdAt: iso(r.created_at),
-    }));
-    return { items };
+    const me = await requireProfile(sql, context.userId);
+    if (data.includeHistory && me.role !== "gerente")
+      throw new Error("Solo gerencia puede ver los avisos retirados.");
+    const rows = await sql<ProducerRow>`select * from announcements
+      where (${Boolean(data.includeHistory)} or (archived_at is null and (expires_at is null or expires_at>now())))
+      and kind='equipo' order by created_at desc,id desc limit 200`;
+    return { items: rows.map(mapAnnouncement) };
   });
-
 export const postAnnouncement = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
   .validator(
-    (d: { kind: "equipo" | "productores"; title?: string; body: string; stage?: string | null }) =>
-      d,
+    (d: {
+      kind: "equipo" | "productores";
+      title?: string;
+      body: string;
+      stage?: string | null;
+      expiresAt?: string | null;
+    }) => d,
   )
-  .handler(async ({ context, data }) => {
-    return (await getSql()).transaction(async (sql) => {
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
       if (me.role !== "gerente") throw new Error("Solo gerencia manda avisos.");
-      const body = data.body.trim();
-      if (!body) throw new Error("Escribe el recado.");
-      const title =
-        (data.title ?? "").trim() ||
-        (data.kind === "equipo" ? "Aviso al equipo" : "Aviso a productores");
-      const id = newId("anuncio");
-      await sql`
-      insert into announcements (id, author_user_id, author_name, kind, stage, title, body)
-      values (
-        ${id}, ${me.userId}, ${me.displayName}, ${data.kind},
-        ${data.kind === "productores" ? data.stage || null : null},
-        ${title}, ${body}
-      )
-    `;
+      const value = announcementValues(data),
+        id = newId("anuncio");
+      await sql`insert into announcements(id,author_user_id,author_name,kind,stage,title,body,expires_at) values
+      (${id},${me.userId},${me.displayName},${data.kind},${data.kind === "productores" ? data.stage || null : null},${value.title},${value.body},${value.expiresAt})`;
+      await writeAudit(
+        sql,
+        me,
+        "aviso",
+        id,
+        data.kind === "equipo" ? "publicar" : "preparar",
+        null,
+        { ...value, kind: data.kind, stage: data.stage ?? null },
+      );
       return { id };
-    });
+    }),
+  );
+export const editAnnouncement = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      id: string;
+      title: string;
+      body: string;
+      expiresAt?: string | null;
+      expectedUpdatedAt: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      if (me.role !== "gerente") throw new Error("Solo gerencia edita avisos.");
+      const rows = await sql<ProducerRow>`select * from announcements where id=${data.id}`;
+      const row = rows[0];
+      if (!row) throw new Error("Aviso no encontrado.");
+      if (row.archived_at) throw new Error("Restaura el aviso antes de editarlo.");
+      if (iso(row.updated_at) !== data.expectedUpdatedAt)
+        throw new Error("Otra persona cambió este aviso. Actualiza antes de guardar.");
+      const value = announcementValues({ ...data, kind: row.kind as "equipo" | "productores" });
+      await sql`update announcements set title=${value.title},body=${value.body},expires_at=${value.expiresAt},updated_at=now() where id=${data.id}`;
+      await writeAudit(sql, me, "aviso", data.id, "editar", mapAnnouncement(row), value);
+      return { ok: true };
+    }),
+  );
+export const archiveAnnouncement = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string; archive: boolean }) => d)
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      if (me.role !== "gerente") throw new Error("Solo gerencia retira o restaura avisos.");
+      if (typeof data.archive !== "boolean") throw new Error("Acción no válida.");
+      const rows = await sql<ProducerRow>`select * from announcements where id=${data.id}`;
+      const row = rows[0];
+      if (!row) throw new Error("Aviso no encontrado.");
+      if (Boolean(row.archived_at) === data.archive) return { ok: true };
+      await sql`update announcements set archived_at=case when ${data.archive} then now() else null end,updated_at=now() where id=${data.id}`;
+      await writeAudit(
+        sql,
+        me,
+        "aviso",
+        data.id,
+        data.archive ? "retirar" : "restaurar",
+        mapAnnouncement(row),
+        { archived: data.archive },
+      );
+      return { ok: true };
+    }),
+  );
+export const getAnnouncementHistory = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { id: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId);
+    if (me.role !== "gerente") throw new Error("Solo gerencia ve el historial de avisos.");
+    const rows =
+      await sql<ProducerRow>`select * from crm_audit where entity_type='aviso' and entity_id=${data.id} order by created_at desc,id desc limit 100`;
+    return {
+      items: rows.map((r) => ({
+        id: String(r.id),
+        action: String(r.action),
+        actor: String(r.actor_name),
+        at: iso(r.created_at),
+        beforeTitle: String((r.before_data as Record<string, unknown> | null)?.title ?? ""),
+        beforeBody: String((r.before_data as Record<string, unknown> | null)?.body ?? ""),
+        afterTitle: String((r.after_data as Record<string, unknown> | null)?.title ?? ""),
+        afterBody: String((r.after_data as Record<string, unknown> | null)?.body ?? ""),
+      })),
+    };
   });
 
 export const listBroadcastTargets = createServerFn({ method: "GET" })
@@ -2956,3 +3150,76 @@ async function buildOfficeDigest(sql: Sql, profile: Profile, agentRaw?: string) 
 
   return { lines: lines.slice(0, 12) };
 }
+
+export const previewAccountMerge = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { sourceId: string; targetId: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql();
+    const me = await requireProfile(sql, context.userId);
+    return previewConsolidation(sql, me, data.sourceId, data.targetId);
+  });
+export const mergeAccounts = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      sourceId: string;
+      targetId: string;
+      confirmEmail: string;
+      expectedSourceCount: number;
+      expectedTargetCount: number;
+    }) => d,
+  )
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      return consolidateAccounts(sql, me, data);
+    }),
+  );
+
+export const rescheduleVisit = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      id: string;
+      scheduledAt: string;
+      place: string;
+      purpose: string;
+      notes: string;
+      reason: string;
+      expectedScheduledAt: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId);
+      const rows = await sql<ProducerRow>`select * from visits where id=${data.id}`;
+      const row = rows[0];
+      if (!row) throw new Error("Cita no encontrada.");
+      const producer = await assertCanEdit(sql, me, String(row.producer_id));
+      if (row.status !== "programada")
+        throw new Error("Una cita cumplida o cancelada conserva su historial. Agenda otra visita.");
+      if (iso(row.scheduled_at) !== data.expectedScheduledAt)
+        throw new Error("Esta cita ya fue reprogramada. Actualiza la agenda.");
+      const when = parseLocalDateTime(data.scheduledAt);
+      if (Number.isNaN(when.getTime())) throw new Error("Fecha no válida.");
+      const reason = data.reason.trim();
+      if (!reason) throw new Error("Anota por qué cambia la cita.");
+      await sql`update visits set scheduled_at=${when.toISOString()},place=${data.place.trim() || null},purpose=${data.purpose.trim() || null},notes=${data.notes.trim() || null} where id=${data.id}`;
+      await logActivity(
+        sql,
+        producer.id,
+        me.userId,
+        "cita",
+        `Cita reprogramada: ${formatAppDateTime(iso(row.scheduled_at))} → ${formatAppDateTime(when)}. Motivo: ${reason}.`,
+      );
+      await writeAudit(sql, me, "cita", data.id, "reprogramar", row, {
+        scheduledAt: when.toISOString(),
+        place: data.place,
+        purpose: data.purpose,
+        notes: data.notes,
+        reason,
+      });
+      return { ok: true };
+    }),
+  );

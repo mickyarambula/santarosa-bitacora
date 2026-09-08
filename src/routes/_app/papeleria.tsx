@@ -23,7 +23,8 @@ function PapeleriaPage() {
   const [mass, setMass] = useState(false);
   const q = useQuery({
     queryKey: ["paper", agent, docType],
-    queryFn: () => listPaperwork({ data: { agent: agent || undefined, docType: docType || undefined } }),
+    queryFn: () =>
+      listPaperwork({ data: { agent: agent || undefined, docType: docType || undefined } }),
   });
   const docs = allDocTypes();
   const items = q.data?.items ?? [];
@@ -42,7 +43,14 @@ function PapeleriaPage() {
         </p>
       </header>
 
-      <NativeSelect aria-label="Documento" value={docType} onChange={(e) => { setDocType(e.target.value); setMass(false); }}>
+      <NativeSelect
+        aria-label="Documento"
+        value={docType}
+        onChange={(e) => {
+          setDocType(e.target.value);
+          setMass(false);
+        }}
+      >
         <option value="">Todos los pendientes</option>
         {counts.map((c) => (
           <option key={c.docType} value={c.docType}>
@@ -60,14 +68,21 @@ function PapeleriaPage() {
 
       {isGerente && items.length ? (
         <div className="flex flex-wrap gap-2">
-          <Button type="button" variant={mass ? "default" : "outline"} onClick={() => setMass((v) => !v)}>
-            {mass ? "Ocultar envío" : `Mandar WhatsApp a estos (${items.filter((i) => i.phone).length})`}
+          <Button
+            type="button"
+            variant={mass ? "default" : "outline"}
+            onClick={() => setMass((v) => !v)}
+          >
+            {mass
+              ? "Ocultar envío"
+              : `Mandar WhatsApp a estos (${items.filter((i) => i.phone).length})`}
           </Button>
         </div>
       ) : null}
 
       {mass && isGerente ? (
         <MassWhatsApp
+          key={`${agent}:${docType}`}
           targets={items}
           summary={selectedLabel ? `Se pidió ${selectedLabel}` : "Se pidió papelería pendiente"}
           messageFor={(t) =>
@@ -80,7 +95,9 @@ function PapeleriaPage() {
               : paperworkMessage({
                   producerName: t.name,
                   agentName: t.comisionistaName ?? "Santa Rosa",
-                  missing: items.find((i) => i.id === t.id)?.missing.map((d) => d.label) ?? ["papelería"],
+                  missing: items.find((i) => i.id === t.id)?.missing.map((d) => d.label) ?? [
+                    "papelería",
+                  ],
                 })
           }
         />
@@ -105,7 +122,9 @@ function PapeleriaPage() {
       ) : (
         <ul className="grid gap-3">
           {items.map((row) => {
-            const missing = docType ? row.missing.filter((d) => d.docType === docType) : row.missing;
+            const missing = docType
+              ? row.missing.filter((d) => d.docType === docType)
+              : row.missing;
             const wa = whatsappHref(
               row.phone,
               selectedLabel

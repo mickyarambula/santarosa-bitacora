@@ -1,3 +1,4 @@
+import { RescheduleVisit } from "@/components/reschedule-visit";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -187,6 +188,19 @@ function ProducerDetailPage() {
           visitId={visits.find((v) => v.status === "programada")?.id}
         />
       </header>
+      <nav aria-label="Secciones de la ficha" className="flex flex-wrap gap-2">
+        <Button asChild variant="outline">
+          <a href="#papeleria">Papelería</a>
+        </Button>
+        <Button asChild variant="outline">
+          <a href="#citas">Ir a citas</a>
+        </Button>
+        {activity.length ? (
+          <Button asChild variant="outline">
+            <a href="#bitacora">Ver bitácora</a>
+          </Button>
+        ) : null}
+      </nav>
 
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat label="Cultivo" value={cropLabel(p.crop)} />
@@ -320,7 +334,7 @@ function ProducerDetailPage() {
         </div>
       ) : null}
 
-      <Card>
+      <Card id="papeleria" className="scroll-mt-24">
         <CardContent className="p-5">
           <DocsChecklist
             documents={documents}
@@ -342,7 +356,7 @@ function ProducerDetailPage() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card id="citas" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Citas</CardTitle>
         </CardHeader>
@@ -381,6 +395,7 @@ function ProducerDetailPage() {
                         {v.place ? ` · ${v.place}` : ""}
                       </p>
                     </div>
+                    <RescheduleVisit visit={v} />
                     <NativeSelect
                       className="h-10 w-40"
                       value={v.status}
@@ -429,7 +444,7 @@ function ProducerDetailPage() {
       </Card>
 
       {activity.length ? (
-        <section>
+        <section id="bitacora" className="scroll-mt-24">
           <h2 className="mb-3 font-display text-lg font-medium">Bitácora</h2>
           <ol className="grid gap-2">
             {activity.map((a) => (
@@ -438,7 +453,9 @@ function ProducerDetailPage() {
                 className="rounded-lg bg-surface px-4 py-3 text-sm shadow-[var(--shadow-border)]"
               >
                 <p>{a.message}</p>
-                <p className="mt-1 text-xs text-subtle">{formatAppDateTime(a.createdAt)}</p>
+                <p className="mt-1 text-xs text-subtle">
+                  {a.actorName} · {formatAppDateTime(a.createdAt)}
+                </p>
               </li>
             ))}
           </ol>

@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { generateKeyPairSync } from "node:crypto";
 import {
-  assertBackupRuntime, BACKUP_TABLES, collectBackup, decryptBackup, encryptBackup,
+  assertBackupRuntime,
+  BACKUP_TABLES,
+  collectBackup,
+  decryptBackup,
+  encryptBackup,
 } from "../src/lib/backup-core.server.ts";
 import { createIsolatedBackupDatabase, verifyBackupInMemory } from "./verify-migration-backup.mjs";
 
@@ -15,9 +19,11 @@ const pair = generateKeyPairSync("rsa", {
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
 });
 const query = (text, params) => db.query(text, params);
-const collect = (userId = "owner-test") => collectBackup(query, userId, migrations, {
-  origin: "http://isolated.invalid", codeRevision: "synthetic-test",
-});
+const collect = (userId = "owner-test") =>
+  collectBackup(query, userId, migrations, {
+    origin: "http://isolated.invalid",
+    codeRevision: "synthetic-test",
+  });
 
 before(async () => {
   ({ db, migrations } = await createIsolatedBackupDatabase());
@@ -61,18 +67,26 @@ before(async () => {
     insert into office_people(id,name,phone) values ('office-test','Oficina ficticia','0000000000');
     insert into office_pings(id,person_id,person_name,kind,message,user_id) values
       ('ping-test','office-test','Oficina ficticia','cita','Invitación ficticia','agent-test');
+    insert into crm_audit(id,entity_type,entity_id,action,actor_user_id,actor_name) values('audit-test','aviso','announcement-test','publicar','owner-test','Gerencia ficticia');
     update app_lock set enabled=true,code_hash='fictional-code-hash';
     insert into announcements(id,author_user_id,author_name,body) values
       ('announcement-test','owner-test','Gerencia ficticia','Aviso ficticio');
   `);
   snapshot = await collect();
 });
-after(async () => { await db?.close(); });
+after(async () => {
+  await db?.close();
+});
 
-test("all 17 tables, other cycles, passwords and relationships survive encryption and restoration", async () => {
+test("all current tables, other cycles, passwords and relationships survive encryption and restoration", async () => {
   assert.equal(snapshot.tables.length, BACKUP_TABLES.length);
   const envelope = encryptBackup(snapshot, pair.publicKey);
-  for (const secret of ["Productor ficticio", "fictional-password-hash", "fictional-session-token", "fictional-encrypted-oauth-token"]) {
+  for (const secret of [
+    "Productor ficticio",
+    "fictional-password-hash",
+    "fictional-session-token",
+    "fictional-encrypted-oauth-token",
+  ]) {
     assert.ok(!envelope.includes(secret));
   }
   const decrypted = decryptBackup(envelope, pair.privateKey);
@@ -80,18 +94,21 @@ test("all 17 tables, other cycles, passwords and relationships survive encryptio
   const counts = await verifyBackupInMemory(decrypted);
   assert.equal(counts.producers, 3);
   assert.equal(counts.account, 2);
-  assert.equal(counts._migrations, 12);
+  assert.equal(counts._migrations, migrations.length);
   assert.ok(Object.values(counts).every((count) => count > 0));
   const rows = decrypted.tables.find((t) => t.name === "visits").rows;
   assert.match(rows[0], /2026-09-08T02:00:00\+00:00/);
-  assert.match(decrypted.tables.find((t) => t.name === "producers").rows.join(""), /999999999999.99/);
+  assert.match(
+    decrypted.tables.find((t) => t.name === "producers").rows.join(""),
+    /999999999999.99/,
+  );
 });
 
 test("missing, commission-only, blocked and revoked users cannot read a backup", async () => {
   for (const id of ["missing", "agent-test", "blocked-test", "revoked-test"]) {
     await assert.rejects(collect(id), /Solo una cuenta activa/);
   }
-  assert.equal((await collect()).tables.length, 17);
+  assert.equal((await collect()).tables.length, BACKUP_TABLES.length);
 });
 
 test("backup is read-only and leaves every source row unchanged", async () => {
@@ -115,7 +132,9 @@ test("extra tables and unexpected migrations fail instead of producing an incomp
 });
 
 test("row-level security never silently exports a filtered table", async () => {
-  await db.exec("create role backup_reader; grant usage on schema public to backup_reader; grant select on all tables in schema public to backup_reader; alter table producers enable row level security; set role backup_reader");
+  await db.exec(
+    "create role backup_reader; grant usage on schema public to backup_reader; grant select on all tables in schema public to backup_reader; alter table producers enable row level security; set role backup_reader",
+  );
   try {
     await assert.rejects(collect(), /row-level security/i);
   } finally {
@@ -131,7 +150,10 @@ test("truncation, tampering and a different recovery key are rejected", () => {
   bytes[0] ^= 1;
   modified.ciphertext = bytes.toString("base64");
   assert.throws(() => decryptBackup(JSON.stringify(modified), pair.privateKey));
-  const other = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" } });
+  const other = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+    privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  });
   assert.throws(() => decryptBackup(encrypted, other.privateKey));
 });
 
@@ -153,4 +175,28 @@ test("preview, expired availability and invalid expiry fail closed", () => {
   assert.throws(() => assertBackupRuntime(true, "2026-09-07", now), /ventana de respaldo/);
   assert.throws(() => assertBackupRuntime(true, "invalid", now), /ventana de respaldo/);
   assert.doesNotThrow(() => assertBackupRuntime(true, "2026-09-14", now));
+});
+
+test("the original 17-table migration backup remains recoverable after the audit schema is added", async () => {
+  const legacy = await createIsolatedBackupDatabase(
+    migrations.filter((n) => n !== "0013_traceability.sql"),
+  );
+  try {
+    await legacy.db.exec(
+      `insert into "user"(id,name,email,"emailVerified") values ('legacy','Original','legacy@test.invalid',true); insert into profiles(user_id,display_name,role,status) values ('legacy','Original','gerente','activo'); insert into producers(id,owner_user_id,comisionista_name,name) values ('original-producer','legacy','Original','Original ficticio');`,
+    );
+    const old = await collectBackup((q, p) => legacy.db.query(q, p), "legacy", legacy.migrations, {
+      origin: "http://isolated.invalid",
+      codeRevision: "legacy",
+    });
+    assert.equal(old.tables.length, 17);
+    const counts = await verifyBackupInMemory(
+      decryptBackup(encryptBackup(old, pair.publicKey), pair.privateKey),
+    );
+    assert.equal(counts.producers, 1);
+    assert.equal(counts._migrations, 12);
+    assert.equal(counts.crm_audit, undefined);
+  } finally {
+    await legacy.db.close();
+  }
 });
