@@ -13,9 +13,11 @@ App: bitácora CRM de Granos Santa Rosa. Remix/TanStack Start + Tailwind + Bette
 ## Roles
 
 - `comisionista`: ve y captura su cartera.
-- `gerente`: ve a todos, filtra por comisionista, candado, avisos, papelería masiva.
+- `gerente`: ve a todos, filtra por identidad de comisionista, avisos, autorizaciones y papelería masiva.
+- `oficina`: solo expedientes documentales de carteras asignadas; sin acceso a operaciones comerciales.
+- `accessAdmin`: permiso adicional de gerencia para candado, cuentas, roles, invitaciones y carteras de Oficina.
 - Un usuario puede ser las dos cosas (gerente de ventas).
-- Primera cuenta del equipo = gerencia. Cuentas nuevas quedan pendientes del candado.
+- Primera cuenta del equipo = gerencia. Cuentas nuevas respetan el candado; una invitación individual válida concede acceso de comisionista y no evita la revisión de coincidencias.
 
 ## Dominio (no romper)
 
