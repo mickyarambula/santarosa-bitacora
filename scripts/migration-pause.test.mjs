@@ -14,8 +14,12 @@ test('source pause rejects existing tabs, server functions and new registrations
   assert.equal(migrationPauseResponse('paused','GET','/api/migration-backup').status,503);
   assert.equal(migrationPauseResponse(undefined,'POST','/'),null);
 });
-test('moved source redirects navigation but never replays a mutation', () => {
+test('moved source redirects navigation but never replays a mutation', async () => {
   const response = migrationPauseResponse('moved','GET','/productores');
-  assert.equal(response.headers.get('Location'),'https://santarosa-bitacora.vercel.app/productores');
+  assert.equal(response.status,200);
+  assert.match(await response.text(), /window.location.replace\("https:\/\/santarosa-bitacora.vercel.app\/productores"\)/);
+  assert.equal(await migrationPauseResponse('moved','HEAD','/productores').text(),'');
+  const unsafe = await migrationPauseResponse('moved','GET','/</script><script>alert(1)</script>').text();
+  assert.ok(!unsafe.includes('</script><script>alert(1)'));
   assert.equal(migrationPauseResponse('moved','POST','/_serverFn/example').status,409);
 });

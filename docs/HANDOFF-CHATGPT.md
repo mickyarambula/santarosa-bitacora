@@ -1,5 +1,11 @@
 # Handoff — Bitácora Santa Rosa → ChatGPT / Codex
 
+> Actualización después del traslado del 7 de septiembre de 2026: producción
+> está en https://santarosa-bitacora.vercel.app/, con Neon y Google propios.
+> Consultar [MIGRACION-VERCEL.md](MIGRACION-VERCEL.md) para el estado y flujo
+> actuales. El contenido siguiente conserva la entrega histórica de Grok;
+> sus referencias a alojamiento y accesos ya no describen la producción nueva.
+
 Fecha de este documento: **7 septiembre 2026**.
 Dueño: Miguel Arambula (`mickyarambula` en GitHub). Empresa: **Almacenes / Granos Santa Rosa**, Los Mochis y Guasave, Sinaloa, México.
 
