@@ -14,8 +14,9 @@ App: bitácora CRM de Granos Santa Rosa. Remix/TanStack Start + Tailwind + Bette
 
 - `comisionista`: ve y captura su cartera.
 - `gerente`: ve a todos, filtra por identidad de comisionista, avisos, autorizaciones y papelería masiva.
-- `oficina`: solo expedientes documentales de carteras asignadas; sin acceso a operaciones comerciales.
-- `accessAdmin`: permiso adicional de gerencia para candado, cuentas, roles, invitaciones y carteras de Oficina.
+- `oficina`: operación de todas las carteras: recepción, captura, atención, tareas, citas y papelería. Puede resolver asignaciones pendientes; las transferencias de carteras establecidas y autorizaciones son de Gerencia.
+- `accessAdmin`: permiso adicional de gerencia para candado, cuentas, roles, invitaciones.
+- Cartera comercial: comisionista (cuenta real), empresa (sin comisionista) o pendiente. Atención y capturista se conservan separados. «Directo» sigue siendo unidad de negocio.
 - Un usuario puede ser las dos cosas (gerente de ventas).
 - Primera cuenta del equipo = gerencia. Cuentas nuevas respetan el candado; una invitación individual válida concede acceso de comisionista y no evita la revisión de coincidencias.
 
@@ -32,7 +33,7 @@ App: bitácora CRM de Granos Santa Rosa. Remix/TanStack Start + Tailwind + Bette
 
 ## Código
 
-- Server: `src/lib/crm.ts` (`createServerFn` + `authMiddleware`). Autorizar siempre. Gerencia vs owner.
+- Server: `src/lib/crm.ts` y `src/lib/operations.ts` (`createServerFn` + `authMiddleware`). Autorizar siempre. Gerencia vs owner.
 - Catálogo: `src/lib/catalog.ts`.
 - Match/duplicados: `src/lib/producer-match.ts`.
 - Horarios: `src/lib/datetime.ts` (`APP_TZ`).

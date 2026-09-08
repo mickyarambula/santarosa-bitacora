@@ -1,71 +1,39 @@
 # Bitácora Santa Rosa
 
-CRM de acopio y habilitación de **Granos Santa Rosa** (Los Mochis / Guasave, Sinaloa).
+CRM de acopio y habilitación de **Granos Santa Rosa** (Los Mochis / Guasave, Sinaloa), ciclo **2026–27**. Conserva TanStack Start, Better Auth y Postgres.
 
-Comisionistas capturan productores (maíz blanco, sorgo, frijol, garbanzo). Gerencia ve el equipo, papelería, citas, grupos y el embudo.
+Código: [mickyarambula/santarosa-bitacora](https://github.com/mickyarambula/santarosa-bitacora). Producción: [Santa Rosa CRM](https://santarosa-bitacora.vercel.app), en Vercel con Neon propio. El enlace anterior de Grok redirige a esta aplicación. `docs/HANDOFF-CHATGPT.md` conserva el contexto histórico de la entrega de Grok; las instrucciones vigentes están en `AGENTS.md`.
 
-Repo privado: [mickyarambula/santarosa-bitacora](https://github.com/mickyarambula/santarosa-bitacora)
+## Trabajo y publicación
 
-La app publicada vive en Grok (`grok.me`). **Este repo es el código.** Los chats se pesados; de aquí en adelante se trabaja contra GitHub.
+Trabajar en una rama, probar con datos aislados y entregar un PR con ensayo revisable. Integrar y publicar dentro de la autorización del usuario. Distinguir código preparado, integrado en main y aplicación realmente publicada. No volver a publicar desde Grok ni cambiar alojamiento sin autorización. No mezclar archivos, datos o infraestructura de otros proyectos.
 
----
+La integración de GitHub con Vercel construye los despliegues; un cambio de esquema requiere ensayar y aplicar sus migraciones en la base correspondiente. Un ensayo debe usar una rama de Neon aislada y variables específicas de preview, nunca producción. La guía [Oficina y cartera](docs/OFICINA-Y-CARTERA.md) describe esta entrega y sus comprobaciones pendientes de publicación.
 
-## Cómo seguirle (chat nuevo de Grok)
+## Estructura
 
-Abre un chat **nuevo**. No hace falta este hilo. Pega:
+| Ruta                    | Contenido                                                                     |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `src/routes/`           | Hoy, Productores, Citas, Papelería, Grupos, Equipo y Avisos                   |
+| `src/lib/crm.ts`        | Operaciones, permisos, autorizaciones y datos anteriores                      |
+| `src/lib/operations.ts` | Carteras de empresa, atención, tareas, comunicaciones y búsqueda de historial |
+| `src/lib/catalog.ts`    | Municipios, cultivos, etapas y papelería                                      |
+| `src/lib/datetime.ts`   | Horarios de Sinaloa (`America/Mazatlan`)                                      |
+| `migrations/`           | Esquema numerado de Postgres                                                  |
+| `scripts/`              | Pruebas y herramientas de verificación                                        |
+| `docs/`                 | Guías y entregas                                                              |
 
-```
-Trabaja sobre el repo de GitHub mickyarambula/santarosa-bitacora (privado).
-
-Es el CRM de Granos Santa Rosa: comisionistas, productores, grupos (prestanombres), papelería por persona, citas (America/Mazatlan), financiamiento por ha, candado de cuentas, avisos y WhatsApp.
-
-Reglas:
-- Lee el repo antes de tocar nada.
-- Un cambio a la vez. No reescribas el proyecto.
-- Sube el cambio al mismo repo (branch main).
-- No inventes otro app. No borres datos reales.
-- Zona horaria: America/Mazatlan.
-- Productores: no duplicar por nombre (en distintos comisionistas tampoco). Grupos sí pueden compartir WhatsApp.
-
-Qué hay que hacer:
-[ESCRIBE AQUÍ EL ARREGLO O LA FUNCIÓN]
-```
-
-Claude, Cursor o Grok Build en la computadora: mismo repo, misma instrucción.
-
----
-
-## Qué hay adentro
-
-| Carpeta | Qué es |
-|---|---|
-| `src/routes/` | Pantallas: Hoy, Productores, Citas, Papelería, Grupos, Equipo, Avisos… |
-| `src/lib/crm.ts` | Servidor: productores, visitas, grupos, rechazos, candado |
-| `src/lib/catalog.ts` | Municipios, cultivos, etapas, papelería, roles |
-| `migrations/` | Schema Postgres (Neon en prod, PGLite en preview) |
-| `public/brand/` | Logo Santa Rosa |
-| `docs/` | Prompt y notas para seguir el proyecto |
-
-Ciclo actual de captura: **2026–27**.
-
----
-
-## Arranque local (si algún día se abre en una computadora)
+## Ensayo local
 
 ```bash
-npm install
-npm run dev
+npm ci
+VITE_AUTH_MODE=standalone VITE_AUTH_ENABLED=true npm run dev
 ```
 
-Preview en `http://localhost:8080`. Auth con email/password o Google/X. Primera cuenta = gerencia.
+El puerto predeterminado es 8080. Sin `DATABASE_URL`, el desarrollo usa PGLite en memoria; los datos desaparecen al reiniciar ese proceso. La primera cuenta ficticia obtiene Gerencia. Para probar Google se requiere la configuración OAuth del entorno correspondiente; no copiar secretos de producción al ensayo.
 
-Publicar sigue siendo desde Grok Build (botón de la app) **o** un `git push` si más adelante se enlaza Vercel a este repo.
+`npm run check` ejecuta revisión de tipos y pruebas; `npm run lint` revisa código y `npm run build` verifica y compila. `scripts/verify-office-ui.mjs` prueba cuentas ficticias en un servidor aislado en `localhost:8081`, bloqueando destinos externos. Sus sesiones reutilizables se guardan únicamente en `/private/tmp/sr-office-test-auth.json`; retirar ese archivo al reiniciar la base ficticia.
 
----
+## Datos y seguridad
 
-## No subir nunca
-
-- `node_modules`
-- `.env` / secretos
-- capturas de QA
-- cuentas ni teléfonos reales de productores
+No subir `.env`, secretos, respaldos sin cifrar, sesiones, capturas con datos reales, teléfonos o cuentas de productores. Respetar las reglas de coincidencias, teléfonos compartidos solo dentro del grupo y papelería individual. No reclasificar «Directo» como cartera de empresa. Los respaldos completos deben cubrir todas las tablas del esquema aplicado.
