@@ -1,3 +1,5 @@
+import { PeriodPicker } from "./period-picker";
+import type { PeriodSelection } from "@/lib/period";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
@@ -25,9 +27,12 @@ export function NextActionsPanel({ agent }: { agent: string | null }) {
     [search, setSearch] = useState(""),
     [q, setQ] = useState(""),
     [page, setPage] = useState(0);
+  const [period, setPeriod] = useState<PeriodSelection>({ period: "todo" });
+  const taskView = ["hoy", "vencido", "esperando", "pendientes"].includes(view);
   const r = useQuery({
-    queryKey: ["work-inbox", view, scope, q, page, agent],
-    queryFn: () => listWorkInbox({ data: { view, scope, q, page, agent: agent ?? undefined } }),
+    queryKey: ["work-inbox", view, scope, q, page, agent, period],
+    queryFn: () =>
+      listWorkInbox({ data: { ...period, view, scope, q, page, agent: agent ?? undefined } }),
     refetchInterval: 60000,
   });
   return (
@@ -79,6 +84,19 @@ export function NextActionsPanel({ agent }: { agent: string | null }) {
           </label>
         ) : null}
       </div>
+      {taskView ? (
+        <PeriodPicker
+          key={JSON.stringify(period)}
+          value={period}
+          allLabel="Todas las fechas"
+          label="Fecha para atender"
+          onChange={(value) => {
+            setPeriod(value);
+            setView("pendientes");
+            setPage(0);
+          }}
+        />
+      ) : null}
       <form
         className="flex gap-2"
         onSubmit={(e) => {

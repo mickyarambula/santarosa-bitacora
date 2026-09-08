@@ -29,7 +29,7 @@ const NAV = [
   { to: "/", label: "Hoy", icon: Home },
   { to: "/productores", label: "Mis productores", icon: Users },
   { to: "/citas", label: "Agenda", icon: CalendarDays },
-  { to: "/junta", label: "Junta semanal", icon: UsersRound },
+  { to: "/junta", label: "Seguimiento", icon: UsersRound },
 ] as const;
 
 const MORE = [
@@ -73,7 +73,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 item.to === "/productores" && canOperate
                   ? "Productores"
                   : item.to === "/junta" && !canOperate
-                    ? "Mi semana"
+                    ? "Mi seguimiento"
                     : item.label
               }
               icon={item.icon}
@@ -288,7 +288,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 {canOperate && item.to === "/productores"
                   ? "Productores"
                   : item.to === "/junta" && !canOperate
-                    ? "Mi semana"
+                    ? "Mi seguimiento"
                     : item.label}
               </Link>
             );

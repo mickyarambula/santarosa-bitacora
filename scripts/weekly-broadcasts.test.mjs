@@ -365,3 +365,170 @@ test("weekly movement links resolve real evidence and cannot expose another port
     /no está disponible/,
   );
 });
+
+test("periods include both Sinaloa days, reject invalid ranges, and retain custom URL context", () => {
+  const { periodRange } = h.load(path.resolve("src/lib/period.ts"));
+  const { reviewSearch } = h.load(path.resolve("src/lib/weekly-review.ts"));
+  assert.deepEqual(
+    periodRange({ period: "personalizado", from: "2026-08-01", until: "2026-08-31" }),
+    {
+      key: "2026-08-01",
+      lastDay: "2026-08-31",
+      start: "2026-08-01T07:00:00.000Z",
+      end: "2026-09-01T07:00:00.000Z",
+    },
+  );
+  assert.equal(periodRange({ period: "mes" }, "2028-02-12").lastDay, "2028-02-29");
+  assert.equal(periodRange({ period: "anterior" }, "2026-09-08").key, "2026-08-31");
+  assert.equal(periodRange({ period: "hoy" }, "2026-09-08").key, "2026-09-08");
+  assert.throws(() =>
+    periodRange({ period: "personalizado", from: "2026-02-30", until: "2026-03-01" }),
+  );
+  assert.throws(() =>
+    periodRange({ period: "personalizado", from: "2026-09-08", until: "2026-09-01" }),
+  );
+  assert.throws(() => periodRange({ period: "personalizado" }));
+  const search = {
+    date: "2026-09-08",
+    period: "hoy",
+    scope: "persona",
+    tab: "actividad",
+    portfolio: "office",
+    page: 2,
+  };
+  assert.deepEqual(reviewSearch(search), search);
+});
+test("custom and all-cycle reports resolve old exact events, keep pending current and enforce ownership", async () => {
+  const { id } = await create("Periodo histórico");
+  const outside = await create("Otra cartera", "agent_b");
+  for (const [key, when, producer] of [
+    ["before", "2026-08-01T06:59:59Z", id],
+    ["start", "2026-08-01T07:00:00Z", id],
+    ["last", "2026-09-01T06:59:59Z", id],
+    ["after", "2026-09-01T07:00:00Z", id],
+    ["other", "2026-08-20T07:00:00Z", outside.id],
+  ])
+    await h.db.query(
+      "insert into touches(id,producer_id,owner_user_id,channel,summary,happened_at) values($1,$2,'office','llamada','Contacto de ensayo',$3)",
+      [key, producer, when],
+    );
+  const data = { date: day(), period: "personalizado", from: "2026-08-01", until: "2026-08-31" };
+  const r = await h.call("getWeeklyReport", "agent_a", data);
+  assert.deepEqual(
+    r.events.map((e) => e.id),
+    ["last", "start"],
+  );
+  assert(r.events.every((e) => e.actorId === "office" && e.portfolioId === "agent_a"));
+  assert.equal(
+    (await h.call("getWeeklyEvent", "agent_a", { ...data, producerId: id, eventId: "last" })).id,
+    "last",
+  );
+  await assert.rejects(
+    h.call("getWeeklyEvent", "agent_a", { ...data, producerId: outside.id, eventId: "other" }),
+  );
+  const all = await h.call("getWeeklyReport", "agent_a", { date: day(), period: "todo" });
+  assert(all.events.some((e) => e.id === "before"));
+  assert(all.events.some((e) => e.id === "after"));
+  assert(!all.events.some((e) => e.id === "other"));
+  await h.db.query(
+    "insert into producer_tasks(id,producer_id,title,assignee_id,due_at,created_by,version) values('pending',$1,'Pendiente actual','agent_a',now(),'office','v')",
+    [id],
+  );
+  const current = await h.call("getWeeklyReport", "agent_a", data);
+  assert(current.tasks.some((t) => t.id === "pending"));
+});
+test("personal work attributes Office contacts and task completion to the actual actor", async () => {
+  const { id } = await create("Atención compartida");
+  await h.call("createTouch", "office", {
+    producerId: id,
+    channel: "llamada",
+    summary: "Oficina realizó el contacto",
+  });
+  await h.db.query(
+    "insert into producer_tasks(id,producer_id,title,assignee_id,due_at,created_by,version) values('done',$1,'Revisar documentos','agent_a',now(),'manager','v')",
+    [id],
+  );
+  await h.call("finishProducerTask", "office", {
+    id: "done",
+    expectedVersion: "v",
+    status: "atendida",
+    result: "Revisados por Oficina",
+  });
+  const r = await weekly();
+  const { portfolioSummaries } = h.load(path.resolve("src/lib/weekly-review.ts"));
+  const byActor = portfolioSummaries(r.actors, r.events, r.tasks, r.asOf, "persona");
+  assert.equal(byActor.find((p) => p.id === "office").movements, 1);
+  assert.equal(byActor.find((p) => p.id === "office").completed, 1);
+  assert.equal(byActor.find((p) => p.id === "agent_a").completed, 0);
+  assert.equal(r.tasks.find((t) => t.id === "done").completedBy, "office");
+  assert.equal(
+    portfolioSummaries(r.portfolios, r.events, r.tasks, r.asOf).find((p) => p.id === "agent_a")
+      .completed,
+    1,
+  );
+});
+test("custom query cannot close or replace a weekly snapshot", async () => {
+  await create("Junta conservada");
+  const original = await weekly();
+  await h.call("closeWeeklyMeeting", "manager", {
+    date: day(),
+    notes: "Acuerdos originales de ensayo",
+    expectedVersion: original.version,
+  });
+  const custom = await h.call("getWeeklyReport", "manager", {
+    date: day(),
+    period: "personalizado",
+    from: "2026-01-01",
+    until: day(),
+  });
+  assert.equal(custom.closed, null);
+  const restored = await weekly();
+  assert.equal(restored.closed.notes, "Acuerdos originales de ensayo");
+  assert.equal(restored.closed.snapshot.version, original.version);
+  await assert.rejects(
+    h.call("closeWeeklyMeeting", "manager", {
+      date: "2026-08-01",
+      notes: "No es un informe semanal",
+      expectedVersion: custom.version,
+    }),
+  );
+});
+test("history, appointments and pending due dates accept ranges without leaking another portfolio", async () => {
+  const { id } = await create("Filtros de fechas");
+  const other = await create("Cartera ajena", "agent_b");
+  await h.db.query(
+    "insert into activity(id,producer_id,user_id,kind,message,created_at) values('past',$1,'office','edicion','Registro pasado','2026-08-31T23:00:00-07:00')",
+    [id],
+  );
+  const data = { period: "personalizado", from: "2026-08-01", until: "2026-08-31" };
+  const history = await h.call("listProducerHistory", "agent_a", { ...data, producerId: id });
+  assert.deepEqual(
+    history.items.map((e) => e.id),
+    ["past"],
+  );
+  await assert.rejects(h.call("listProducerHistory", "agent_a", { ...data, producerId: other.id }));
+  for (const [key, producer, when] of [
+    ["in", id, "2026-08-31T23:59:59-07:00"],
+    ["out", id, "2026-09-01T00:00:00-07:00"],
+    ["foreign", other.id, "2026-08-20T12:00:00-07:00"],
+  ]) {
+    await h.db.query(
+      "insert into visits(id,producer_id,owner_user_id,scheduled_at) values($1,$2,'agent_a',$3)",
+      [key, producer, when],
+    );
+    await h.db.query(
+      "insert into producer_tasks(id,producer_id,title,assignee_id,due_at,created_by,version) values($1,$2,'Pendiente','agent_a',$3,'office','v')",
+      [key, producer, when],
+    );
+  }
+  assert.deepEqual(
+    (await h.call("listVisits", "agent_a", data)).visits.map((v) => v.id),
+    ["in"],
+  );
+  assert.deepEqual(
+    (
+      await h.call("listWorkInbox", "agent_a", { ...data, view: "pendientes", scope: "team" })
+    ).items.map((t) => t.id),
+    ["in"],
+  );
+});

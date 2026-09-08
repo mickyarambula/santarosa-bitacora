@@ -42,9 +42,46 @@ try {
   await overflow(manager);
   assert.equal(await manager.getByRole("table").count(), 0);
   assert.equal(
-    await manager.getByRole("button", { name: /Revisar semana de Gerencia/ }).count(),
+    await manager.getByRole("button", { name: /Revisar seguimiento de Gerencia/ }).count(),
     0,
   );
+  await manager.getByLabel("Periodo", { exact: true }).selectOption("personalizado");
+  await manager.getByLabel("Desde", { exact: true }).fill("2026-08-01");
+  await manager.getByLabel("Hasta", { exact: true }).fill("2026-07-31");
+  await manager.getByRole("button", { name: "Aplicar fechas", exact: true }).click();
+  await manager.getByRole("alert").filter({ hasText: "Desde" }).waitFor();
+  await manager.getByLabel("Hasta", { exact: true }).fill("2026-08-31");
+  await manager.getByRole("button", { name: "Aplicar fechas", exact: true }).click();
+  await manager.getByText("Sin actividad registrada en este periodo").first().waitFor();
+  await overflow(manager);
+  await manager.getByRole("button", { name: "Pendientes actuales", exact: true }).click();
+  await manager.getByText("Pendientes actuales · no dependen del periodo de actividad").waitFor();
+  assert.equal(await manager.getByLabel("Periodo", { exact: true }).count(), 0);
+  await manager.getByRole("button", { name: "Actividad", exact: true }).click();
+  await manager.getByLabel("Periodo", { exact: true }).selectOption("todo");
+  await manager.getByText("Todo el historial disponible del ciclo 26–27").waitFor();
+  await manager.getByLabel("Qué actividad consultar", { exact: true }).selectOption("persona");
+  await manager
+    .getByLabel("Persona o cartera", { exact: true })
+    .selectOption({ label: "Oficina Ensayo" });
+  await manager.getByRole("region", { name: "Revisión individual" }).waitFor();
+  await manager
+    .getByRole("link", { name: /Ver movimiento/ })
+    .first()
+    .click();
+  await manager
+    .getByRole("heading", { name: "Movimiento que estás revisando", exact: true })
+    .waitFor();
+  await manager.getByRole("link", { name: "← Volver al seguimiento", exact: true }).click();
+  assert.equal(await manager.getByLabel("Periodo", { exact: true }).inputValue(), "todo");
+  assert.equal(
+    await manager.getByLabel("Qué actividad consultar", { exact: true }).inputValue(),
+    "persona",
+  );
+  await manager.getByLabel("Qué actividad consultar", { exact: true }).selectOption("cartera");
+  await manager.getByRole("button", { name: "← Volver al equipo", exact: true }).click();
+  await manager.getByLabel("Periodo", { exact: true }).selectOption("semana");
+  await manager.getByText("Filtrar la lista del equipo", { exact: true }).click();
   await manager.getByLabel("Buscar nombre o correo", { exact: true }).fill("no-existe");
   await manager
     .getByText("No hay carteras que coincidan. Cambia los filtros para ver otras.")
@@ -52,7 +89,7 @@ try {
   await manager.getByLabel("Buscar nombre o correo", { exact: true }).fill("");
   await manager.getByLabel("Mostrar", { exact: true }).selectOption("actividad");
   await manager
-    .getByRole("button", { name: "Revisar semana de Campo Ensayo", exact: true })
+    .getByRole("button", { name: "Revisar seguimiento de Campo Ensayo", exact: true })
     .click();
   await manager.getByRole("region", { name: "Revisión individual" }).waitFor();
   assert.equal(await manager.getByRole("region", { name: "Resumen del equipo" }).count(), 0);
@@ -66,17 +103,19 @@ try {
     .waitFor();
   await manager.getByRole("button", { name: /Ver historia del expediente/ }).click();
   assert(await manager.locator("#bitacora").evaluate((e) => e.open));
-  await manager.getByRole("link", { name: "← Volver a la revisión semanal", exact: true }).click();
+  await manager.getByRole("link", { name: "← Volver al seguimiento", exact: true }).click();
   await manager.getByRole("region", { name: "Revisión individual" }).waitFor();
   assert.equal(manager.url(), selectedUrl);
   await manager.reload();
   await manager.getByRole("heading", { name: "Campo Ensayo", exact: true }).waitFor();
   await manager.getByRole("button", { name: "← Volver al equipo", exact: true }).click();
   assert.equal(await manager.getByLabel("Mostrar", { exact: true }).inputValue(), "actividad");
+  if (!(await manager.getByLabel("Mostrar", { exact: true }).isVisible()))
+    await manager.getByText("Filtrar la lista del equipo", { exact: true }).click();
   await manager.getByLabel("Mostrar", { exact: true }).selectOption("todos");
-  await manager.getByLabel("Ver carteras de", { exact: true }).selectOption("todos");
+  await manager.getByLabel("Ver integrantes de", { exact: true }).selectOption("todos");
   await manager
-    .getByRole("button", { name: "Revisar semana de Campo Ensayo", exact: true })
+    .getByRole("button", { name: "Revisar seguimiento de Campo Ensayo", exact: true })
     .click();
   await manager.getByRole("button", { name: "Siguiente cartera →", exact: true }).click();
   assert.notEqual(
@@ -84,9 +123,11 @@ try {
     new URL(selectedUrl).searchParams.get("portfolio"),
   );
   await manager.getByRole("button", { name: "← Volver al equipo", exact: true }).click();
-  await manager.getByLabel("Ver carteras de", { exact: true }).selectOption("empresa");
+  if (!(await manager.getByLabel("Ver integrantes de", { exact: true }).isVisible()))
+    await manager.getByText("Filtrar la lista del equipo", { exact: true }).click();
+  await manager.getByLabel("Ver integrantes de", { exact: true }).selectOption("empresa");
   await manager
-    .getByRole("button", { name: "Revisar semana de Empresa · sin comisionista", exact: true })
+    .getByRole("button", { name: "Revisar seguimiento de Empresa · sin comisionista", exact: true })
     .click();
   // Inspect and change one fictitious document, then verify its exact weekly link.
   await manager
@@ -106,7 +147,7 @@ try {
     (id) => document.getElementById(id)?.querySelector("summary")?.innerText.includes("Lo tiene"),
     docId,
   );
-  await manager.getByRole("link", { name: "← Volver a la revisión semanal", exact: true }).click();
+  await manager.getByRole("link", { name: "← Volver al seguimiento", exact: true }).click();
   await manager.getByRole("button", { name: "Actualizar informe", exact: true }).click();
   await manager.getByLabel("Tipo de registro", { exact: true }).selectOption("documento");
   await manager
@@ -118,12 +159,12 @@ try {
   assert.equal(await manager.evaluate(() => document.activeElement.id), docId);
   await overflow(manager);
   await manager.screenshot({ path: "/private/tmp/sr-review-record-mobile.png", fullPage: true });
-  await manager.getByRole("link", { name: "← Volver a la revisión semanal", exact: true }).click();
+  await manager.getByRole("link", { name: "← Volver al seguimiento", exact: true }).click();
   assert.equal(
     await manager.getByLabel("Tipo de registro", { exact: true }).inputValue(),
     "documento",
   );
-  await manager.getByRole("button", { name: "Qué acordamos", exact: true }).click();
+  await manager.getByRole("button", { name: "Juntas", exact: true }).click();
   const select = manager.getByLabel("Productor para el acuerdo", { exact: true });
   const id = await select.locator("option").nth(1).getAttribute("value");
   await select.selectOption(id);
@@ -139,9 +180,10 @@ try {
     .selectOption({ label: "Oficina Ensayo · oficina" });
   await manager.getByRole("button", { name: "Guardar tarea", exact: true }).click();
   await manager.getByText("Tarea guardada.", { exact: true }).waitFor();
-  await manager.getByRole("button", { name: "Qué tiene pendiente", exact: true }).click();
+  await manager.getByRole("button", { name: "Pendientes actuales", exact: true }).click();
   await manager.getByText("Compromiso de junta ficticio", { exact: true }).first().waitFor();
   await manager.getByRole("button", { name: "← Volver al equipo", exact: true }).click();
+  await manager.getByRole("button", { name: "Juntas", exact: true }).click();
   await manager.getByText("Cerrar junta y conservar resumen", { exact: true }).click();
   await manager
     .getByLabel("Acuerdos y apoyos de Gerencia", { exact: true })
@@ -161,7 +203,7 @@ try {
   await manager.setViewportSize({ width: 1365, height: 950 });
   await manager.screenshot({ path: "/private/tmp/sr-weekly-meeting-desktop.png", fullPage: true });
   active = office;
-  await office.goto("http://localhost:8081/junta");
+  await office.goto("http://localhost:8081/junta?tab=juntas");
   await office.getByRole("heading", { name: "Resumen de la junta", exact: true }).waitFor();
   assert.equal(
     await office
@@ -172,7 +214,7 @@ try {
   active = field;
   await field.goto("http://localhost:8081/junta");
   await field.getByRole("region", { name: "Revisión individual", exact: true }).waitFor();
-  assert.equal(await field.getByLabel("Ver carteras de", { exact: true }).count(), 0);
+  assert.equal(await field.getByLabel("Ver integrantes de", { exact: true }).count(), 0);
   assert.equal(await field.getByRole("table").count(), 0);
   assert.equal(
     await field.getByRole("heading", { name: "Resumen de la junta", exact: true }).count(),

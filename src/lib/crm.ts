@@ -1,3 +1,4 @@
+import { periodSchema, periodRange, type PeriodSelection } from "./period";
 import { createHash, randomBytes } from "node:crypto";
 import { accountMatches } from "./account-identity";
 import { writeAudit } from "./crm-audit";
@@ -2036,23 +2037,29 @@ export const setVisitStatus = createServerFn({ method: "POST" })
 
 export const listVisits = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator((d: { range?: "hoy" | "semana" | "todas"; agent?: string } | undefined) => d ?? {})
+  .validator(
+    (
+      d: ({ range?: "hoy" | "semana" | "todas"; agent?: string } & PeriodSelection) | undefined,
+    ) => ({ ...d, ...periodSchema.parse(d ?? {}) }),
+  )
   .handler(async ({ context, data }) => {
     const sql = await getSql();
     const profile = await requireProfile(sql, context.userId, true);
     const { mine, agent } = agentScope(profile, data.agent);
     const range = data.range ?? "semana";
+    const dates = data.period ? periodRange(data) : null;
     const rows = await sql<ProducerRow>`
       select v.*, p.name as producer_name, p.phone, p.zone
       from visits v
       join producers p on p.id = v.producer_id
-      where p.archived_at is null and (${mine} = false or p.owner_user_id = ${profile.userId})
+      where p.cycle=${CYCLE} and not p.is_example and p.archived_at is null and (${mine} = false or p.owner_user_id = ${profile.userId})
         and (${agent} = '' or (p.comisionista_name = ${agent} or p.owner_user_id = ${agent.startsWith("uid:") ? agent.slice(4) : ""}))
+      and (${dates?.start ?? null}::timestamptz is null or (v.scheduled_at>=${dates?.start ?? null}::timestamptz and v.scheduled_at<${dates?.end ?? null}::timestamptz))
       order by v.scheduled_at asc
     `;
     let visits = rows.map(mapVisit);
-    if (range === "hoy") visits = visits.filter((v) => isAppToday(v.scheduledAt));
-    if (range === "semana") visits = visits.filter((v) => isAppThisWeek(v.scheduledAt));
+    if (!dates && range === "hoy") visits = visits.filter((v) => isAppToday(v.scheduledAt));
+    if (!dates && range === "semana") visits = visits.filter((v) => isAppThisWeek(v.scheduledAt));
     return { profile, visits };
   });
 

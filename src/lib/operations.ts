@@ -1,3 +1,4 @@
+import { periodSchema, periodRange } from "./period";
 import { randomUUID } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
@@ -328,6 +329,7 @@ export const listWorkInbox = createServerFn({ method: "GET" })
         page: z.number().int().min(0).max(100000).default(0),
         agent: z.string().max(250).optional(),
       })
+      .merge(periodSchema)
       .parse(d ?? {}),
   )
   .handler(async ({ context, data }) => {
@@ -337,10 +339,11 @@ export const listWorkInbox = createServerFn({ method: "GET" })
       search = "%" + data.q + "%",
       agent = data.agent === "__mine__" ? "uid:" + me.userId : (data.agent ?? "");
     const taskView = ["hoy", "vencido", "esperando", "pendientes"].includes(data.view);
+    const dates = periodRange({ ...data, period: data.period ?? "todo" });
     const rows = taskView
       ? await sql<
           Record<string, unknown>
-        >`select t.id,p.id as producer_id,p.name,p.comisionista_name,t.title,t.due_at,coalesce(a.display_name,'Cuenta anterior') as assignee_name,t.status,count(*) over()::int as total from producer_tasks t join producers p on p.id=t.producer_id left join profiles a on a.user_id=t.assignee_id where p.archived_at is null and p.cycle=${CYCLE} and p.stage<>'cerrado' and t.status in ('pendiente','esperando') and (${staff(me)} or p.owner_user_id=${me.userId}) and (${agent}='' or p.comisionista_name=${agent} or p.owner_user_id=${agent.startsWith("uid:") ? agent.slice(4) : ""}) and (${team} or t.assignee_id=${me.userId}) and (p.name ilike ${search} or t.title ilike ${search} or p.comisionista_name ilike ${search}) and (case when ${data.view}='hoy' then (t.due_at at time zone 'America/Mazatlan')::date=(now() at time zone 'America/Mazatlan')::date when ${data.view}='vencido' then t.due_at<now() when ${data.view}='esperando' then t.status='esperando' else true end) order by t.due_at,t.id limit 26 offset ${data.page * 25}`
+        >`select t.id,p.id as producer_id,p.name,p.comisionista_name,t.title,t.due_at,coalesce(a.display_name,'Cuenta anterior') as assignee_name,t.status,count(*) over()::int as total from producer_tasks t join producers p on p.id=t.producer_id left join profiles a on a.user_id=t.assignee_id where p.archived_at is null and p.cycle=${CYCLE} and p.stage<>'cerrado' and t.status in ('pendiente','esperando') and t.due_at>=${dates.start}::timestamptz and t.due_at<${dates.end}::timestamptz and (${staff(me)} or p.owner_user_id=${me.userId}) and (${agent}='' or p.comisionista_name=${agent} or p.owner_user_id=${agent.startsWith("uid:") ? agent.slice(4) : ""}) and (${team} or t.assignee_id=${me.userId}) and (p.name ilike ${search} or t.title ilike ${search} or p.comisionista_name ilike ${search}) and (case when ${data.view}='hoy' then (t.due_at at time zone 'America/Mazatlan')::date=(now() at time zone 'America/Mazatlan')::date when ${data.view}='vencido' then t.due_at<now() when ${data.view}='esperando' then t.status='esperando' else true end) order by t.due_at,t.id limit 26 offset ${data.page * 25}`
       : await sql<
           Record<string, unknown>
         >`select p.id,p.id as producer_id,p.name,p.comisionista_name,coalesce(a.display_name,'Sin responsable activo') as assignee_name,${data.view} as status,count(*) over()::int as total from producers p left join profiles a on a.user_id=p.attention_user_id where p.archived_at is null and p.cycle=${CYCLE} and p.stage<>'cerrado' and (${staff(me)} or p.owner_user_id=${me.userId}) and (${agent}='' or p.comisionista_name=${agent} or p.owner_user_id=${agent.startsWith("uid:") ? agent.slice(4) : ""}) and (${team} or p.attention_user_id=${me.userId} or (${!staff(me)} and p.owner_user_id=${me.userId})) and (p.name ilike ${search} or p.comisionista_name ilike ${search}) and (case when ${data.view}='asignacion' then p.portfolio_kind='pendiente' or a.user_id is null or a.status<>'activo' when ${data.view}='sin_accion' then not exists(select 1 from producer_tasks t where t.producer_id=p.id and t.status in ('pendiente','esperando')) when ${data.view}='papeleria' then exists(select 1 from documents d where d.producer_id=p.id and d.status in ('pendiente','no_hizo','recibido','entregado') and (p.scheme||':'||d.doc_type)=any(${activeDocs()})) else p.stage='evaluacion' end) order by p.name,p.id limit 26 offset ${data.page * 25}`;
@@ -523,6 +526,7 @@ export const listProducerHistory = createServerFn({ method: "GET" })
         kind: z.string().max(80).default(""),
         q: z.string().trim().max(150).default(""),
       })
+      .merge(periodSchema)
       .parse(d),
   )
   .handler(async ({ context, data }) => {
@@ -530,6 +534,7 @@ export const listProducerHistory = createServerFn({ method: "GET" })
       me = await requireProfile(sql, context.userId, true);
     await assertCanEdit(sql, me, data.producerId, true);
     const search = "%" + data.q + "%";
+    const dates = periodRange({ ...data, period: data.period ?? "todo" });
     const [rows, kinds] = await Promise.all([
       sql<{
         id: string;
@@ -538,7 +543,7 @@ export const listProducerHistory = createServerFn({ method: "GET" })
         actor: string;
         created_at: string;
         total: number;
-      }>`select a.id,a.kind,a.message,coalesce(p.display_name,u.name,'Cuenta anterior') as actor,a.created_at,count(*) over()::int as total from activity a left join profiles p on p.user_id=a.user_id left join "user" u on u.id=a.user_id where a.producer_id=${data.producerId} and (${data.kind}='' or a.kind=${data.kind}) and (a.message ilike ${search} or coalesce(p.display_name,u.name,'Cuenta anterior') ilike ${search}) order by a.created_at desc,a.id desc limit 26 offset ${data.page * 25}`,
+      }>`select a.id,a.kind,a.message,coalesce(p.display_name,u.name,'Cuenta anterior') as actor,a.created_at,count(*) over()::int as total from activity a left join profiles p on p.user_id=a.user_id left join "user" u on u.id=a.user_id where a.producer_id=${data.producerId} and a.created_at>=${dates.start}::timestamptz and a.created_at<${dates.end}::timestamptz and (${data.kind}='' or a.kind=${data.kind}) and (a.message ilike ${search} or coalesce(p.display_name,u.name,'Cuenta anterior') ilike ${search}) order by a.created_at desc,a.id desc limit 26 offset ${data.page * 25}`,
       sql<{
         kind: string;
       }>`select distinct kind from activity where producer_id=${data.producerId} order by kind`,

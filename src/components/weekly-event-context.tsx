@@ -15,9 +15,19 @@ export function WeeklyEventContext({
 }) {
   const box = useRef<HTMLDivElement>(null);
   const q = useQuery({
-    queryKey: ["weekly-event", producerId, search.date, search.movement],
+    queryKey: [
+      "weekly-event",
+      producerId,
+      search.date,
+      search.period,
+      search.from,
+      search.until,
+      search.movement,
+    ],
     queryFn: () =>
-      getWeeklyEvent({ data: { producerId, date: search.date!, eventId: search.movement! } }),
+      getWeeklyEvent({
+        data: { ...search, producerId, date: search.date!, eventId: search.movement! },
+      }),
     enabled: !!search.date && !!search.movement,
   });
   useEffect(() => {
@@ -49,14 +59,14 @@ export function WeeklyEventContext({
       ref={box}
       tabIndex={-1}
       className="scroll-mt-24 space-y-3 rounded-xl border border-border bg-secondary p-4 outline-none"
-      aria-label="Movimiento de la junta"
+      aria-label="Movimiento del seguimiento"
     >
       <Link
         to="/junta"
         search={back}
         className="inline-flex min-h-11 items-center font-medium underline"
       >
-        ← Volver a la revisión semanal
+        ← Volver al seguimiento
       </Link>
       {search.movement ? (
         q.isPending ? (
