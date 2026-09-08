@@ -1,7 +1,7 @@
 import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, EyeOff } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { SIGN_IN_PROVIDERS, authClient, authEnabled, signIn } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { BrandLogo } from "@/components/brand-logo";
@@ -24,6 +24,22 @@ function rememberCode(code: string) {
 }
 
 function Login() {
+  const [hasInvitation, setHasInvitation] = useState(false);
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href);
+      const token = url.searchParams.get("invitacion");
+      if (token && /^[A-Za-z0-9_-]{40,100}$/.test(token)) {
+        sessionStorage.setItem("sr-invitation-token", token);
+        url.searchParams.delete("invitacion");
+        window.history.replaceState(null, "", url.pathname + url.search);
+        setMode("crear");
+      }
+      setHasInvitation(Boolean(sessionStorage.getItem("sr-invitation-token")));
+    } catch {
+      /* unavailable storage */
+    }
+  }, []);
   const { user, isPending } = useCurrentUserState();
   const [mode, setMode] = useState<"entrar" | "crear">("entrar");
   const [name, setName] = useState("");
@@ -35,7 +51,7 @@ function Login() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const gate = useQuery({ queryKey: ["signup-gate"], queryFn: () => getSignupGate() });
-  const needCode = Boolean(gate.data?.lockOn && gate.data.teamExists);
+  const needCode = Boolean(gate.data?.lockOn && gate.data.teamExists && !hasInvitation);
 
   if (!isPending && user) return <Navigate to="/" />;
 
@@ -241,9 +257,8 @@ function Login() {
             {mode === "crear" ? "Ya tengo cuenta" : "Soy nuevo · crear cuenta"}
           </button>
           <p className="mt-5 text-xs leading-relaxed text-subtle">
-            Nadie elige el rol al registrarse. El primero en crear cuenta queda de gerencia. Los que
-            sigan entran como comisionistas. Gerencia pone un candado (clave del equipo) para que no
-            entre cualquiera con el link. Si alguien se cuela, en Equipo se inhabilita o se borra.
+            Usa tu cuenta habitual. Las invitaciones son individuales; gerencia revisa coincidencias
+            y asigna las funciones de cada persona.
           </p>
         </section>
       </div>

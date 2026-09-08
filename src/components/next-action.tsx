@@ -7,7 +7,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { getNextAction, saveNextAction, finishNextAction } from "@/lib/crm";
 import { formatAppDateTime, toAppDateTimeInput } from "@/lib/datetime";
 type Action = Awaited<ReturnType<typeof getNextAction>>;
-export function NextAction({ producerId }: { producerId: string }) {
+export function NextAction({
+  producerId,
+  embedded = false,
+}: {
+  producerId: string;
+  embedded?: boolean;
+}) {
   const qc = useQueryClient(),
     [editing, setEditing] = useState(false),
     [finishing, setFinishing] = useState<"atendida" | "cancelada" | null>(null);
@@ -47,7 +53,7 @@ export function NextAction({ producerId }: { producerId: string }) {
   });
   return (
     <section
-      id="seguimiento"
+      id={embedded ? undefined : "seguimiento"}
       className="scroll-mt-24 rounded-xl border border-border bg-surface p-4"
     >
       <h2 className="font-display text-xl font-medium">Próxima acción</h2>

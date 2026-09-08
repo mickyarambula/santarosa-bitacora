@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarClock, FolderOpen, MessageCircle, Timer } from "lucide-react";
@@ -6,7 +7,7 @@ import { EmptyState } from "@/components/empty-state";
 import { PageBack } from "@/components/page-back";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getOfficeDigest, listReminders, pingOffice } from "@/lib/crm";
+import { getOfficeDigest, listReminders, pingOffice, confirmOfficePing } from "@/lib/crm";
 import type { ReminderKind } from "@/lib/types";
 import { whatsappHref } from "@/lib/utils";
 import { useViewAs } from "@/lib/view-as";
@@ -134,6 +135,15 @@ function RecordatoriosPage() {
 }
 
 function OfficeAviso() {
+  const [prepared, setPrepared] = useState<string | null>(null);
+  const confirm = useMutation({
+    mutationFn: confirmOfficePing,
+    onSuccess: () => {
+      setPrepared(null);
+      toast.success("Envío confirmado.");
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const qc = useQueryClient();
   const { agent } = useViewAs();
   const digest = useQuery({
@@ -144,6 +154,7 @@ function OfficeAviso() {
     mutationFn: (personId: string) => pingOffice({ data: { personId, kind: "aviso" } }),
     onSuccess: (res) => {
       toast.success(`Aviso listo para ${res.personName}.`);
+      setPrepared(res.pingId);
       void qc.invalidateQueries({ queryKey: ["office-pings"] });
       window.open(res.href, "_blank", "noopener,noreferrer");
     },
@@ -173,8 +184,23 @@ function OfficeAviso() {
           ))}
         </ul>
       ) : (
-        <p className="mb-4 text-sm text-muted">Hoy no hay pendientes fuertes, igual puedes mandar el aviso.</p>
+        <p className="mb-4 text-sm text-muted">
+          Hoy no hay pendientes fuertes, igual puedes mandar el aviso.
+        </p>
       )}
+      {prepared ? (
+        <div className="mb-3 flex gap-2">
+          <Button
+            disabled={confirm.isPending}
+            onClick={() => confirm.mutate({ data: { id: prepared } })}
+          >
+            Ya lo envié
+          </Button>
+          <Button variant="outline" onClick={() => setPrepared(null)}>
+            No se envió
+          </Button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         {people.map((p) => (
           <Button

@@ -10,7 +10,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { listOfficePeople, pingOffice } from "@/lib/crm";
+import { listOfficePeople, pingOffice, confirmOfficePing } from "@/lib/crm";
 import { cn } from "@/lib/utils";
 
 export function OfficeInvite({
@@ -27,6 +27,21 @@ export function OfficeInvite({
   className?: string;
 }) {
   const qc = useQueryClient();
+  const [prepared, setPrepared] = useState<{
+    pingId: string;
+    href: string;
+    personName: string;
+  } | null>(null);
+  const confirm = useMutation({
+    mutationFn: confirmOfficePing,
+    onSuccess: () => {
+      toast.success("Envío confirmado.");
+      setPrepared(null);
+      setOpen(false);
+      void qc.invalidateQueries();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
   const [open, setOpen] = useState(false);
   const people = useQuery({
     queryKey: ["office-people"],
@@ -47,7 +62,7 @@ export function OfficeInvite({
       toast.success(`WhatsApp listo para ${res.personName}.`);
       void qc.invalidateQueries({ queryKey: ["producer"] });
       window.open(res.href, "_blank", "noopener,noreferrer");
-      setOpen(false);
+      setPrepared(res);
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -72,11 +87,35 @@ export function OfficeInvite({
             <DialogTitle>¿Quién te acompaña?</DialogTitle>
             <DialogDescription>
               {producerName
-                ? `Se abre WhatsApp con el mensaje listo para ${producerName}. Queda en la bitácora.`
-                : "Se abre WhatsApp con el mensaje listo. Queda asentado."}
+                ? `Se abre WhatsApp con el mensaje listo para ${producerName}. Confirma el envío al volver.`
+                : "Se abre WhatsApp con el mensaje listo. Confirma el envío al volver."}
             </DialogDescription>
           </DialogHeader>
-          {people.isPending ? (
+          {prepared ? (
+            <div className="grid gap-3">
+              <p>Mensaje preparado para {prepared.personName}. Confirma solo si lo enviaste.</p>
+              <Button asChild variant="outline">
+                <a href={prepared.href} target="_blank" rel="noreferrer">
+                  Abrir WhatsApp
+                </a>
+              </Button>
+              <Button
+                disabled={confirm.isPending}
+                onClick={() => confirm.mutate({ data: { id: prepared.pingId } })}
+              >
+                Ya lo envié
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setPrepared(null);
+                  setOpen(false);
+                }}
+              >
+                No se envió
+              </Button>
+            </div>
+          ) : people.isPending ? (
             <p className="text-sm text-muted">Cargando oficina…</p>
           ) : invitees.length === 0 ? (
             <p className="text-sm text-muted">
