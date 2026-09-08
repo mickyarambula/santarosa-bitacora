@@ -3,7 +3,8 @@ import { VisitStatusControl } from "@/components/visit-status-control";
 import { RescheduleVisit } from "@/components/reschedule-visit";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { PeriodPicker } from "@/components/period-picker";
+import { periodSchema } from "@/lib/period";
 import { CalendarDays } from "lucide-react";
 import { EmptyState } from "@/components/empty-state";
 import { OfficeInvite } from "@/components/office-invite";
@@ -16,14 +17,24 @@ import { visitConfirmMessage } from "@/lib/reminders";
 import type { Visit } from "@/lib/types";
 import { useViewAs } from "@/lib/view-as";
 
-export const Route = createFileRoute("/_app/citas")({ component: CitasPage });
+export const Route = createFileRoute("/_app/citas")({
+  validateSearch: (raw) => {
+    const parsed = periodSchema.safeParse(raw);
+    return parsed.success ? parsed.data : {};
+  },
+  component: CitasPage,
+});
 
 function CitasPage() {
   const { agent, agentLabel } = useViewAs();
-  const [range, setRange] = useState<"hoy" | "semana" | "todas">("semana");
+  const period = Route.useSearch(),
+    navigate = Route.useNavigate();
   const q = useQuery({
-    queryKey: ["visits", range, agent],
-    queryFn: () => listVisits({ data: { range, agent: agent || undefined } }),
+    queryKey: ["visits", period, agent],
+    queryFn: () =>
+      listVisits({
+        data: { ...period, period: period.period ?? "semana", agent: agent || undefined },
+      }),
   });
 
   const visits = q.data?.visits ?? [];
@@ -42,37 +53,26 @@ function CitasPage() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ScheduleVisitButton />
-          <div className="flex gap-1 rounded-lg bg-secondary p-1">
-            {(
-              [
-                ["hoy", "Hoy"],
-                ["semana", "Semana"],
-                ["todas", "Todas"],
-              ] as const
-            ).map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setRange(id)}
-                className={
-                  range === id
-                    ? "h-10 rounded-md bg-surface px-3 text-sm font-medium shadow-sm"
-                    : "h-10 rounded-md px-3 text-sm text-muted"
-                }
-              >
-                {label}
-              </button>
-            ))}
-          </div>
         </div>
       </header>
-      <NextActionsPanel agent={agent} />
+      <details className="rounded-xl border border-border p-4">
+        <summary className="cursor-pointer font-medium">
+          Pendientes actuales · independientes de las fechas de las citas
+        </summary>
+        <NextActionsPanel agent={agent} />
+      </details>
+      <PeriodPicker
+        key={JSON.stringify(period)}
+        value={period}
+        label="Fecha programada de las citas"
+        onChange={(value) => void navigate({ search: value, resetScroll: false })}
+      />
 
       {q.isPending ? (
         <Skeleton className="h-48" />
       ) : q.error ? (
         <p role="alert">
-          No se pudo cargar la agenda. <button onClick={() => void q.refetch()}>Reintentar</button>
+          {q.error.message} <button onClick={() => void q.refetch()}>Reintentar</button>
         </p>
       ) : visits.length === 0 ? (
         <EmptyState

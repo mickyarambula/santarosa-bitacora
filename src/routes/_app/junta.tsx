@@ -9,6 +9,7 @@ import {
   filterPortfolios,
   type ReviewSearch,
 } from "@/lib/weekly-review";
+import { PeriodPicker } from "@/components/period-picker";
 import { weekRange } from "@/lib/weekly-dates";
 import { appDateKey, formatAppDateTime } from "@/lib/datetime";
 import { useViewAs } from "@/lib/view-as";
@@ -25,7 +26,11 @@ function WeeklyPage() {
   const { canOperate } = useViewAs();
   const search = Route.useSearch(),
     navigate = Route.useNavigate();
-  const day = search.date ?? appDateKey(new Date());
+  const tab = search.tab ?? "actividad";
+  const day =
+    tab === "juntas" || !search.period
+      ? (search.date ?? appDateKey(new Date()))
+      : appDateKey(new Date());
   const setDay = (date: string) =>
     void navigate({ search: (previous) => ({ ...previous, date, page: 0 }), resetScroll: false });
   const range = weekRange(day);
@@ -37,31 +42,71 @@ function WeeklyPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <header>
-        <h1 className="font-display text-3xl">{canOperate ? "Junta semanal" : "Mi semana"}</h1>
+        <h1 className="font-display text-3xl">
+          {canOperate ? "Seguimiento del equipo" : "Mi seguimiento"}
+        </h1>
         <p className="text-muted">
-          Revisar lo trabajado, resolver trabas y acordar el siguiente paso.
+          {canOperate
+            ? "Elige a quién revisar, consulta su actividad y da seguimiento a sus pendientes."
+            : "Consulta lo trabajado y organiza tus siguientes pasos."}
         </p>
       </header>
-      <div className="flex flex-wrap items-end gap-2">
-        <Button variant="outline" aria-label="Semana anterior" onClick={() => move(-7)}>
-          ←
-        </Button>
-        <label className="grid gap-1 text-sm">
-          Semana que contiene
-          <Input
-            type="date"
-            value={day}
-            onChange={(e) => {
-              if (e.target.value && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value))
-                setDay(e.target.value);
-            }}
-          />
-        </label>
-        <Button variant="outline" aria-label="Semana siguiente" onClick={() => move(7)}>
-          →
-        </Button>
-      </div>
-      <WeeklyReview key={range.key} day={range.key} />
+      <nav aria-label="Secciones de seguimiento" className="flex flex-wrap gap-2">
+        {(
+          [
+            ["actividad", "Actividad"],
+            ["pendientes", "Pendientes actuales"],
+            ["juntas", "Juntas"],
+          ] as const
+        ).map(([id, label]) => (
+          <Button
+            key={id}
+            variant={tab === id ? "default" : "outline"}
+            onClick={() =>
+              void navigate({
+                search: (previous) => ({
+                  ...previous,
+                  tab: id,
+                  view: "live",
+                  section:
+                    id === "actividad"
+                      ? "avances"
+                      : id === "pendientes"
+                        ? "compromisos"
+                        : "acuerdos",
+                  category: id === "pendientes" ? "pendientes" : "",
+                  page: 0,
+                }),
+                resetScroll: false,
+              })
+            }
+          >
+            {label}
+          </Button>
+        ))}
+      </nav>
+      {tab === "juntas" ? (
+        <div className="flex flex-wrap items-end gap-2">
+          <Button variant="outline" aria-label="Semana anterior" onClick={() => move(-7)}>
+            ←
+          </Button>
+          <label className="grid gap-1 text-sm">
+            Semana que contiene
+            <Input
+              type="date"
+              value={day}
+              onChange={(e) => {
+                if (e.target.value && /^\d{4}-\d{2}-\d{2}$/.test(e.target.value))
+                  setDay(e.target.value);
+              }}
+            />
+          </label>
+          <Button variant="outline" aria-label="Semana siguiente" onClick={() => move(7)}>
+            →
+          </Button>
+        </div>
+      ) : null}
+      <WeeklyReview key={tab + day} day={day} />
     </div>
   );
 }
@@ -78,7 +123,11 @@ function WeeklyReview({ day }: { day: string }) {
   const search = Route.useSearch(),
     navigate = Route.useNavigate();
   const portfolio = canOperate ? (search.portfolio ?? "") : userId,
-    section = search.section ?? "avances",
+    tab = search.tab ?? "actividad",
+    scope = tab === "actividad" ? (search.scope ?? "cartera") : "cartera",
+    section =
+      search.section ??
+      (tab === "pendientes" ? "compromisos" : tab === "juntas" ? "acuerdos" : "avances"),
     category = search.category ?? "",
     page = search.page ?? 0;
   const updateSearch = (patch: Partial<ReviewSearch>, replace = false) =>
@@ -96,8 +145,16 @@ function WeeklyReview({ day }: { day: string }) {
     [taskProducer, setTaskProducer] = useState(""),
     [closing, setClosing] = useState(false);
   const q = useQuery({
-    queryKey: ["weekly-report", day],
-    queryFn: () => getWeeklyReport({ data: { date: day } }),
+    queryKey: ["weekly-report", day, tab, search.period, search.from, search.until],
+    queryFn: () =>
+      getWeeklyReport({
+        data: {
+          date: day,
+          ...(tab === "actividad"
+            ? { period: search.period, from: search.from, until: search.until }
+            : {}),
+        },
+      }),
   });
   useEffect(() => {
     if (!q.isPending && (portfolio || previousPortfolio.current)) {
@@ -121,7 +178,7 @@ function WeeklyReview({ day }: { day: string }) {
       setClosing(false);
     },
   });
-  if (q.isPending) return <p>Cargando informe semanal…</p>;
+  if (q.isPending) return <p>Cargando seguimiento…</p>;
   if (q.error)
     return (
       <p role="alert">
@@ -129,14 +186,30 @@ function WeeklyReview({ day }: { day: string }) {
         <button className="underline" onClick={() => void q.refetch()}>
           Reintentar
         </button>
+        <Button
+          variant="outline"
+          onClick={() => updateSearch({ period: "semana", from: undefined, until: undefined })}
+        >
+          Volver a esta semana
+        </Button>
       </p>
     );
   const live = q.data!,
-    saved = search.view !== "live" && live.closed,
+    saved = tab === "juntas" && search.view !== "live" && live.closed,
     report = saved ? live.closed!.snapshot : live,
     asOf = saved ? live.closed!.closedAt : live.asOf;
-  const filteredEvents = report.events.filter((e) => !portfolio || e.portfolioId === portfolio),
-    tasks = report.tasks.filter((t) => !portfolio || t.portfolioId === portfolio),
+  const filteredEvents = report.events.filter(
+      (e) => !portfolio || (scope === "persona" ? e.actorId : e.portfolioId) === portfolio,
+    ),
+    tasks = report.tasks.filter(
+      (t) =>
+        !portfolio ||
+        (scope === "persona"
+          ? t.status === "atendida"
+            ? t.completedBy
+            : t.assigneeId
+          : t.portfolioId) === portfolio,
+    ),
     producers = report.producers.filter((p) => !portfolio || p.portfolioId === portfolio);
   const openTasks = tasks.filter((t) => ["pendiente", "esperando"].includes(t.status));
   const blocked = producers.filter((p) => p.blocker || !p.hasNext || p.stage === "evaluacion");
@@ -147,7 +220,9 @@ function WeeklyReview({ day }: { day: string }) {
         ? ["pendiente", "esperando"].includes(t.status) && t.dueAt < asOf
         : category === "pendientes"
           ? ["pendiente", "esperando"].includes(t.status)
-          : true,
+          : tab === "pendientes"
+            ? ["pendiente", "esperando"].includes(t.status)
+            : true,
   );
   const eventFilter = (e: WeekEvent) =>
     category === "atendidos"
@@ -155,10 +230,24 @@ function WeeklyReview({ day }: { day: string }) {
       : !category || e.kind === category;
   const displayed = filteredEvents.filter(eventFilter);
   const choose = (id: string, view: typeof section, metric = "") => {
-    updateSearch({ portfolio: id, section: view, category: metric, page: 0 });
+    const nextTab = saved
+      ? "juntas"
+      : view === "avances" || metric === "atendidas"
+        ? "actividad"
+        : view === "acuerdos"
+          ? "juntas"
+          : "pendientes";
+    updateSearch({
+      portfolio: id,
+      section: view,
+      tab: nextTab,
+      category: metric || (view === "compromisos" ? "pendientes" : ""),
+      page: 0,
+    });
     setTaskProducer("");
   };
-  const summaries = portfolioSummaries(report.portfolios, report.events, report.tasks, asOf);
+  const people = scope === "persona" ? live.actors : report.portfolios;
+  const summaries = portfolioSummaries(people, report.events, report.tasks, asOf, scope);
   // Old immutable snapshots have no roles; keep every recorded portfolio available.
   const effectiveSearch = report.portfolios.some((p) => p.role)
     ? search
@@ -167,7 +256,11 @@ function WeeklyReview({ day }: { day: string }) {
   const selected = summaries.find((p) => p.id === portfolio);
   const next = visible[visible.findIndex((p) => p.id === portfolio) + 1];
   const detail = !canOperate || !!portfolio;
-  const backSearch = { ...search, date: day };
+  const backSearch = {
+    ...search,
+    date: day,
+    ...(tab !== "actividad" ? { period: undefined, from: undefined, until: undefined } : {}),
+  };
   const label = (p: { id: string; name: string; identity?: string }) => {
     const duplicate = summaries.some(
       (other) =>
@@ -180,23 +273,94 @@ function WeeklyReview({ day }: { day: string }) {
   };
   return (
     <div className="space-y-5">
+      <div className="grid items-end gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-2">
+        {canOperate ? (
+          <label className="grid gap-1 text-sm">
+            Persona o cartera
+            <NativeSelect
+              aria-label="Persona o cartera"
+              value={portfolio}
+              onChange={(e) => updateSearch({ portfolio: e.target.value, page: 0 })}
+            >
+              <option value="">Ver equipo</option>
+              {summaries.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {label(p)}
+                </option>
+              ))}
+            </NativeSelect>
+          </label>
+        ) : null}
+        {tab === "actividad" ? (
+          <>
+            <PeriodPicker
+              key={[search.period, search.from, search.until].join(":")}
+              value={
+                !search.period && weekRange(day).key !== weekRange().key
+                  ? {
+                      period: "personalizado",
+                      from: weekRange(day).key,
+                      until: weekRange(day).lastDay,
+                    }
+                  : search
+              }
+              onChange={(value) =>
+                updateSearch({ ...value, date: appDateKey(new Date()), page: 0, view: "live" })
+              }
+            />
+            <label className="grid gap-1 text-sm">
+              Qué actividad consultar
+              <NativeSelect
+                aria-label="Qué actividad consultar"
+                value={scope}
+                onChange={(e) =>
+                  updateSearch({
+                    scope: e.target.value as ReviewSearch["scope"],
+                    group: "todos",
+                    portfolio: ["empresa", "pendiente"].includes(portfolio) ? "" : portfolio,
+                    page: 0,
+                  })
+                }
+              >
+                <option value="cartera">Actividad de la cartera</option>
+                <option value="persona">Trabajo registrado por la persona</option>
+              </NativeSelect>
+            </label>
+          </>
+        ) : null}
+      </div>
       <div className="space-y-2 rounded-xl bg-secondary p-4">
         <p className="font-medium">
-          Semana del {formatAppDateTime(report.range.start, { day: "numeric", month: "long" })} al{" "}
-          {formatAppDateTime(report.range.lastDay + "T12:00:00-07:00", {
-            day: "numeric",
-            month: "long",
-          })}{" "}
+          {tab === "pendientes" ? (
+            "Pendientes actuales · no dependen del periodo de actividad"
+          ) : search.period === "todo" && tab === "actividad" ? (
+            "Todo el historial disponible del ciclo 26–27"
+          ) : (
+            <>
+              Del{" "}
+              {formatAppDateTime(report.range.start, {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}{" "}
+              al{" "}
+              {formatAppDateTime(report.range.lastDay + "T12:00:00-07:00", {
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
+            </>
+          )}{" "}
           · Sinaloa
         </p>
         <p className="text-sm">
-          {saved ? "Resumen guardado al cerrar la junta" : "Informe en vivo"} · corte{" "}
+          {saved ? "Resumen guardado al cerrar la junta" : "Consulta actualizada"} ·{" "}
           {formatAppDateTime(asOf)}
         </p>
         <details className="text-sm">
           <summary className="cursor-pointer">Cómo leer estas cifras</summary>
           <p className="mt-2">
-            La actividad corresponde a la semana elegida. Los pendientes muestran la situación al
+            La actividad corresponde al periodo elegido. Los pendientes muestran la situación al
             corte; las carteras, su asignación al consultar o guardar el informe.
           </p>
           <p className="mt-2">
@@ -205,7 +369,7 @@ function WeeklyReview({ day }: { day: string }) {
             El historial anterior puede estar incompleto.
           </p>
         </details>
-        {live.closed ? (
+        {tab === "juntas" && live.closed ? (
           <>
             <p className="text-sm">Junta cerrada por {live.closed.author}.</p>
             <Button
@@ -223,6 +387,12 @@ function WeeklyReview({ day }: { day: string }) {
           Actualizar informe
         </Button>
       </div>
+      {tab === "actividad" && scope === "persona" ? (
+        <p className="text-sm text-muted">
+          Se cuenta al autor del registro, aunque atendiera una cartera ajena. Las tareas sin autor
+          de cierre verificable no se atribuyen a otra persona.
+        </p>
+      ) : null}
       {canOperate && !detail ? (
         <section
           ref={summaryRef}
@@ -230,46 +400,55 @@ function WeeklyReview({ day }: { day: string }) {
           className="scroll-mt-24 space-y-4 outline-none"
           aria-label="Resumen del equipo"
         >
-          <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-surface p-4 sm:grid-cols-3">
-            <label className="grid gap-1 text-sm">
-              Ver carteras de
-              <NativeSelect
-                aria-label="Ver carteras de"
-                value={effectiveSearch.group ?? "comisionistas"}
-                onChange={(e) =>
-                  updateSearch({ group: e.target.value as ReviewSearch["group"], page: 0 })
-                }
-              >
-                <option value="comisionistas">Comisionistas</option>
-                <option value="empresa">Clientes de la empresa</option>
-                <option value="pendiente">Pendientes de asignar</option>
-                <option value="todos">Todo el equipo</option>
-              </NativeSelect>
-            </label>
-            <label className="order-3 col-span-2 grid gap-1 text-sm sm:order-2 sm:col-span-1">
-              Buscar nombre o correo
-              <Input
-                value={search.q ?? ""}
-                onChange={(e) => updateSearch({ q: e.target.value, page: 0 }, true)}
-                placeholder="Nombre del comisionista"
-              />
-            </label>
-            <label className="order-2 grid gap-1 text-sm sm:order-3">
-              Mostrar
-              <NativeSelect
-                aria-label="Mostrar"
-                value={search.filter ?? "todos"}
-                onChange={(e) =>
-                  updateSearch({ filter: e.target.value as ReviewSearch["filter"], page: 0 })
-                }
-              >
-                <option value="todos">Todos</option>
-                <option value="actividad">Con actividad</option>
-                <option value="sin-actividad">Sin actividad registrada</option>
-                <option value="vencidos">Con pendientes vencidos</option>
-              </NativeSelect>
-            </label>
-          </div>
+          <details className="rounded-xl border border-border bg-surface p-4">
+            <summary className="cursor-pointer text-sm font-medium">
+              Filtrar la lista del equipo
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <label className="grid gap-1 text-sm">
+                Ver integrantes de
+                <NativeSelect
+                  aria-label="Ver integrantes de"
+                  value={effectiveSearch.group ?? "comisionistas"}
+                  onChange={(e) =>
+                    updateSearch({ group: e.target.value as ReviewSearch["group"], page: 0 })
+                  }
+                >
+                  <option value="comisionistas">Comisionistas</option>
+                  {scope === "cartera" ? (
+                    <>
+                      <option value="empresa">Clientes de la empresa</option>
+                      <option value="pendiente">Pendientes de asignar</option>
+                    </>
+                  ) : null}
+                  <option value="todos">Todo el equipo</option>
+                </NativeSelect>
+              </label>
+              <label className="order-3 col-span-2 grid gap-1 text-sm sm:order-2 sm:col-span-1">
+                Buscar nombre o correo
+                <Input
+                  value={search.q ?? ""}
+                  onChange={(e) => updateSearch({ q: e.target.value, page: 0 }, true)}
+                  placeholder="Nombre del comisionista"
+                />
+              </label>
+              <label className="order-2 grid gap-1 text-sm sm:order-3">
+                Mostrar
+                <NativeSelect
+                  aria-label="Mostrar"
+                  value={search.filter ?? "todos"}
+                  onChange={(e) =>
+                    updateSearch({ filter: e.target.value as ReviewSearch["filter"], page: 0 })
+                  }
+                >
+                  <option value="todos">Todos</option>
+                  <option value="actividad">Con actividad</option>
+                  <option value="sin-actividad">Sin actividad registrada</option>
+                  <option value="vencidos">Con pendientes vencidos</option>
+                </NativeSelect>
+              </label>
+            </div>
+          </details>
           <p className="text-sm text-muted" role="status">
             {visible.length} {visible.length === 1 ? "cartera" : "carteras"} · Elige a quién
             revisar.
@@ -280,22 +459,23 @@ function WeeklyReview({ day }: { day: string }) {
                 <div className="min-w-0 flex-1">
                   <h2 className="break-words font-medium">{label(p)}</h2>
                   <p className="mt-1 text-sm text-muted">
-                    {p.producers.size} {p.producers.size === 1 ? "productor" : "productores"} con
-                    actividad · {p.completed} tareas atendidas
+                    {tab === "pendientes"
+                      ? `${p.pending} tareas pendientes actuales`
+                      : `${p.producers.size} productores con actividad · ${p.completed} tareas atendidas`}
                   </p>
                   <p className={`text-sm ${p.overdue ? "font-medium text-clay" : "text-muted"}`}>
                     {p.overdue ? `${p.overdue} pendientes vencidos` : "Sin pendientes vencidos"}
                   </p>
-                  {!p.movements && !p.completed ? (
-                    <p className="text-xs text-muted">Sin actividad registrada esta semana</p>
+                  {tab === "actividad" && !p.movements && !p.completed ? (
+                    <p className="text-xs text-muted">Sin actividad registrada en este periodo</p>
                   ) : null}
                 </div>
                 <Button
                   variant="outline"
-                  aria-label={`Revisar semana de ${label(p)}`}
-                  onClick={() => choose(p.id, "avances")}
+                  aria-label={`Revisar seguimiento de ${label(p)}`}
+                  onClick={() => updateSearch({ portfolio: p.id, page: 0 })}
                 >
-                  Revisar semana →
+                  Revisar →
                 </Button>
               </li>
             ))}
@@ -315,11 +495,14 @@ function WeeklyReview({ day }: { day: string }) {
           >
             {canOperate ? (
               <div className="flex flex-wrap justify-between gap-2">
-                <Button variant="outline" onClick={() => choose("", "avances")}>
+                <Button variant="outline" onClick={() => updateSearch({ portfolio: "", page: 0 })}>
                   ← Volver al equipo
                 </Button>
                 {next && next.id !== portfolio ? (
-                  <Button variant="outline" onClick={() => choose(next.id, "avances")}>
+                  <Button
+                    variant="outline"
+                    onClick={() => updateSearch({ portfolio: next.id, page: 0 })}
+                  >
                     Siguiente cartera →
                   </Button>
                 ) : null}
@@ -329,25 +512,44 @@ function WeeklyReview({ day }: { day: string }) {
               {selected ? label(selected) : "Cartera no disponible en este informe"}
             </h2>
             <p className="text-sm text-muted">
-              Los productores pertenecen a esta cartera. Cada movimiento indica quién lo registró.
+              {scope === "persona"
+                ? "Registros hechos por esta persona. Se indica a qué cartera pertenece cada productor."
+                : "Actividad de sus productores, incluida la atención registrada por Oficina o Gerencia."}
             </p>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {[
-                ["avances", "", "Productores con actividad", selected?.producers.size ?? 0],
-                ["avances", "", "Movimientos", selected?.movements ?? 0],
-                ["compromisos", "atendidas", "Tareas atendidas", selected?.completed ?? 0],
-                ["compromisos", "vencidas", "Pendientes vencidos", selected?.overdue ?? 0],
-              ].map(([view, metric, text, count]) => (
-                <button
-                  key={text}
-                  className="rounded-lg border border-border p-3 text-left hover:bg-secondary focus-visible:ring-2"
-                  onClick={() => choose(portfolio, view as typeof section, String(metric))}
-                >
-                  <span className="block text-xl font-medium">{count}</span>
-                  <span className="text-sm">{text} →</span>
-                </button>
-              ))}
-            </div>
+            {tab === "actividad" ? (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  [
+                    "avances",
+                    "alta",
+                    "Productores nuevos",
+                    filteredEvents.filter((e) => e.kind === "alta").length,
+                  ],
+                  [
+                    "avances",
+                    "contacto",
+                    "Contactos",
+                    filteredEvents.filter((e) => e.kind === "contacto").length,
+                  ],
+                  [
+                    "avances",
+                    "documento",
+                    "Papelería",
+                    filteredEvents.filter((e) => e.kind === "documento").length,
+                  ],
+                  ["compromisos", "atendidas", "Tareas atendidas", selected?.completed ?? 0],
+                ].map(([view, metric, text, count]) => (
+                  <button
+                    key={text}
+                    className="rounded-lg border border-border p-3 text-left hover:bg-secondary focus-visible:ring-2"
+                    onClick={() => choose(portfolio, view as typeof section, String(metric))}
+                  >
+                    <span className="block text-xl font-medium">{count}</span>
+                    <span className="text-sm">{text} →</span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
           </section>
           <div className="flex flex-wrap gap-2">
             {(
@@ -357,15 +559,19 @@ function WeeklyReview({ day }: { day: string }) {
                 ["trabas", "Qué necesita apoyo"],
                 ["acuerdos", "Qué acordamos"],
               ] as const
-            ).map(([key, label]) => (
-              <Button
-                key={key}
-                variant={section === key ? "default" : "outline"}
-                onClick={() => choose(portfolio, key)}
-              >
-                {label}
-              </Button>
-            ))}
+            )
+              .filter(([key]) =>
+                tab === "pendientes" ? ["compromisos", "trabas"].includes(key) : false,
+              )
+              .map(([key, label]) => (
+                <Button
+                  key={key}
+                  variant={section === key ? "default" : "outline"}
+                  onClick={() => choose(portfolio, key)}
+                >
+                  {label}
+                </Button>
+              ))}
           </div>
           {section === "avances" ? (
             <section className="space-y-3">
@@ -443,8 +649,9 @@ function WeeklyReview({ day }: { day: string }) {
                     updateSearch({ category: e.target.value, page: 0 });
                   }}
                 >
-                  <option value="">Atendidos esta semana y pendientes al corte</option>
-                  <option value="atendidas">Atendidos esta semana</option>
+                  {tab === "actividad" ? (
+                    <option value="atendidas">Atendidos en el periodo</option>
+                  ) : null}
                   <option value="vencidas">Vencidos al corte</option>
                   <option value="pendientes">Próximos compromisos</option>
                 </NativeSelect>
@@ -466,11 +673,16 @@ function WeeklyReview({ day }: { day: string }) {
                   </Link>
                   <p>{t.title}</p>
                   <p className="text-sm">
-                    {t.assignee} · {formatAppDateTime(t.dueAt)} · {t.status}
+                    Responsable: {t.assignee} · {formatAppDateTime(t.dueAt)} · {t.status}
                     {["pendiente", "esperando"].includes(t.status) && t.dueAt < asOf
                       ? " · Vencido"
                       : ""}
                   </p>
+                  {t.status === "atendida" ? (
+                    <p className="text-sm">
+                      Cerró: {t.completedByName ?? "Autor no disponible en el historial"}
+                    </p>
+                  ) : null}
                   {t.result ? <p className="text-sm">Resultado: {t.result}</p> : null}
                 </article>
               ))}
@@ -584,7 +796,7 @@ function WeeklyReview({ day }: { day: string }) {
           <h2 className="font-display text-xl">Resumen de la junta</h2>
           <p className="whitespace-pre-wrap">{live.closed!.notes}</p>
         </section>
-      ) : isGerente && !live.closed && !detail ? (
+      ) : tab === "juntas" && isGerente && !live.closed && !detail ? (
         <details className="space-y-3 rounded-xl border border-border p-4">
           <summary className="min-h-11 cursor-pointer py-2 font-display text-xl">
             Cerrar junta y conservar resumen

@@ -1,3 +1,5 @@
+import { PeriodPicker } from "./period-picker";
+import type { PeriodSelection } from "@/lib/period";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listProducerHistory } from "@/lib/operations";
@@ -25,14 +27,15 @@ const labels: Record<string, string> = {
   proxima_accion: "Seguimiento anterior",
 };
 export function ProducerHistory({ producerId }: { producerId: string }) {
+  const [period, setPeriod] = useState<PeriodSelection>({ period: "todo" });
   const [page, setPage] = useState(0),
     [kind, setKind] = useState(""),
     [search, setSearch] = useState(""),
     [q, setQ] = useState(""),
     [opened, setOpened] = useState(false);
   const query = useQuery({
-    queryKey: ["producer", producerId, "history", page, kind, q],
-    queryFn: () => listProducerHistory({ data: { producerId, page, kind, q } }),
+    queryKey: ["producer", producerId, "history", page, kind, q, period],
+    queryFn: () => listProducerHistory({ data: { producerId, page, kind, q, ...period } }),
     enabled: opened,
   });
   return (
@@ -47,6 +50,16 @@ export function ProducerHistory({ producerId }: { producerId: string }) {
       <p className="text-sm text-muted">
         Del registro más reciente al más antiguo, conservando quién hizo cada movimiento.
       </p>
+      <PeriodPicker
+        key={JSON.stringify(period)}
+        value={period}
+        allLabel="Toda la historia del expediente"
+        label="Periodo de los movimientos"
+        onChange={(value) => {
+          setPeriod(value);
+          setPage(0);
+        }}
+      />
       <form
         className="my-3 grid gap-2 sm:grid-cols-3"
         onSubmit={(e) => {

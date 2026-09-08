@@ -7,6 +7,7 @@ import { requireProfile } from "./crm";
 import { writeAudit } from "./crm-audit";
 import { CYCLE, docLabel, DOC_STATUS } from "./catalog";
 import { weekRange } from "./weekly-dates";
+import { periodSchema, periodRange, type PeriodSelection } from "./period";
 import type { Profile } from "./types";
 
 const input = z.object({ date: z.string().max(10) });
@@ -17,6 +18,7 @@ export type WeekEvent = {
   portfolioId: string;
   portfolio: string;
   actor: string;
+  actorId?: string;
   kind: string;
   detail: string;
   at: string;
@@ -29,6 +31,10 @@ export type WeekTask = {
   portfolioId: string;
   title: string;
   assignee: string;
+  portfolio?: string;
+  assigneeId?: string;
+  completedBy?: string | null;
+  completedByName?: string;
   dueAt: string;
   status: string;
   result: string | null;
@@ -98,14 +104,15 @@ function mapEvent(e: Record<string, unknown>): WeekEvent {
     portfolioId: portfolioId(e),
     portfolio: String(e.comisionista_name),
     actor: String(e.actor),
+    actorId: e.actor_id ? String(e.actor_id) : undefined,
     kind: String(e.kind),
     detail,
     at: iso(e.at),
     target: String(e.target),
   };
 }
-async function report(sql: Sql, me: Profile, day: string) {
-  const range = weekRange(day),
+async function report(sql: Sql, me: Profile, day: string, selection: PeriodSelection = {}) {
+  const range = periodRange(selection, day),
     staff = me.role !== "comisionista";
   const [events, producers, tasks, people] = await Promise.all([
     readEvents(sql, me, range),
@@ -119,8 +126,16 @@ async function report(sql: Sql, me: Profile, day: string) {
       and (${staff} or p.owner_user_id=${me.userId}) order by p.name,p.id limit 10001`,
     sql<
       Record<string, unknown>
-    >`select t.*,p.name,p.owner_user_id,p.portfolio_kind,coalesce(a.display_name,'Cuenta anterior') as assignee
+    >`select t.*,p.name,p.owner_user_id,p.portfolio_kind,p.comisionista_name,coalesce(a.display_name,'Cuenta anterior') as assignee,
+      done.actor_user_id as completed_by,done.actor_name as completed_by_name
       from producer_tasks t join producers p on p.id=t.producer_id left join profiles a on a.user_id=t.assignee_id
+      left join lateral (
+        select au.actor_user_id,coalesce(ap.display_name,'Cuenta anterior') as actor_name
+        from crm_audit au left join profiles ap on ap.user_id=au.actor_user_id where
+        (au.entity_type='tarea' and au.entity_id=t.id and au.action='atendida')
+        or (au.entity_type='cita' and au.entity_id=t.visit_id and au.action='estado' and au.after_data->>'status'='cumplida')
+        order by au.created_at desc,au.id desc limit 1
+      ) done on true
       where p.cycle=${CYCLE} and not p.is_example and (${staff} or p.owner_user_id=${me.userId})
       and ((t.status in ('pendiente','esperando') and p.archived_at is null and p.stage<>'cerrado')
         or (t.completed_at>=${range.start}::timestamptz and t.completed_at<${range.end}::timestamptz and t.completed_at<=now()))
@@ -147,6 +162,10 @@ async function report(sql: Sql, me: Profile, day: string) {
     portfolioId: portfolioId(t),
     title: String(t.title),
     assignee: String(t.assignee),
+    portfolio: String(t.comisionista_name),
+    completedByName: t.completed_by_name ? String(t.completed_by_name) : undefined,
+    assigneeId: String(t.assignee_id),
+    completedBy: t.completed_by ? String(t.completed_by) : null,
     dueAt: iso(t.due_at),
     status: String(t.status),
     result: t.result ? String(t.result) : null,
@@ -168,10 +187,40 @@ async function report(sql: Sql, me: Profile, day: string) {
     portfolios.set("empresa", "Empresa · sin comisionista");
     portfolios.set("pendiente", "Pendiente de asignar");
   }
-  for (const p of [...mappedProducers, ...mappedEvents])
-    if (!portfolios.has(p.portfolioId)) portfolios.set(p.portfolioId, p.portfolio);
+  for (const p of [...mappedProducers, ...mappedEvents, ...mappedTasks])
+    if (!portfolios.has(p.portfolioId))
+      portfolios.set(p.portfolioId, p.portfolio ?? "Cartera anterior");
   const result = {
     range,
+    actors: [
+      ...new Map([
+        ...people.map(
+          (p) => [p.user_id, { id: p.user_id, name: p.display_name, role: p.role }] as const,
+        ),
+        ...mappedTasks
+          .filter((t) => t.completedBy && !people.some((p) => p.user_id === t.completedBy))
+          .map(
+            (t) =>
+              [
+                t.completedBy!,
+                {
+                  id: t.completedBy!,
+                  name: (t.completedByName ?? "Cuenta anterior") + " · cuenta anterior",
+                  role: "anterior",
+                },
+              ] as const,
+          ),
+        ...mappedEvents
+          .filter((e) => e.actorId && !people.some((p) => p.user_id === e.actorId))
+          .map(
+            (e) =>
+              [
+                e.actorId!,
+                { id: e.actorId!, name: e.actor + " · cuenta anterior", role: "anterior" },
+              ] as const,
+          ),
+      ]).values(),
+    ],
     events: mappedEvents,
     tasks: mappedTasks,
     producers: mappedProducers,
@@ -193,13 +242,13 @@ async function report(sql: Sql, me: Profile, day: string) {
 }
 export const getWeeklyReport = createServerFn({ method: "GET" })
   .middleware([authMiddleware])
-  .validator((d) => input.parse(d))
+  .validator((d) => input.merge(periodSchema).parse(d))
   .handler(async ({ context, data }) => {
     const sql = await getSql(),
       me = await requireProfile(sql, context.userId, true);
-    const result = await report(sql, me, data.date);
+    const result = await report(sql, me, data.date, data);
     const closed =
-      me.role === "comisionista"
+      me.role === "comisionista" || (data.period && data.period !== "semana")
         ? []
         : await sql<{
             id: string;
@@ -262,14 +311,21 @@ export const getWeeklyEvent = createServerFn({ method: "GET" })
         producerId: z.string().min(1).max(150),
         eventId: z.string().min(1).max(150),
       })
+      .merge(periodSchema)
       .parse(d),
   )
   .handler(async ({ context, data }) => {
     const sql = await getSql(),
       me = await requireProfile(sql, context.userId, true);
-    const rows = await readEvents(sql, me, weekRange(data.date), data.producerId, data.eventId);
+    const rows = await readEvents(
+      sql,
+      me,
+      periodRange(data, data.date),
+      data.producerId,
+      data.eventId,
+    );
     const event = rows[0] ? mapEvent(rows[0]) : null;
     if (!event)
-      throw new Error("Este movimiento ya no está disponible en tu cartera para esta semana.");
+      throw new Error("Este movimiento ya no está disponible en tu cartera para este periodo.");
     return event;
   });

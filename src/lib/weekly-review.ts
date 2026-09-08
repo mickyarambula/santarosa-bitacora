@@ -1,6 +1,9 @@
+import { dateBoundary, periodSchema, type PeriodSelection } from "./period";
 import { weekRange } from "./weekly-dates";
 import type { WeekEvent, WeekTask } from "./weekly";
-export type ReviewSearch = {
+export type ReviewSearch = PeriodSelection & {
+  tab?: "actividad" | "pendientes" | "juntas";
+  scope?: "cartera" | "persona";
   date?: string;
   view?: "live" | "saved";
   portfolio?: string;
@@ -12,11 +15,16 @@ export type ReviewSearch = {
   page?: number;
 };
 export function reviewSearch(raw: Record<string, unknown>): ReviewSearch {
-  const result: ReviewSearch = {};
+  const parsed = periodSchema.safeParse(raw);
+  const result: ReviewSearch = parsed.success ? parsed.data : {};
+  if (["actividad", "pendientes", "juntas"].includes(String(raw.tab)))
+    result.tab = raw.tab as ReviewSearch["tab"];
+  if (raw.scope === "cartera" || raw.scope === "persona") result.scope = raw.scope;
   if (raw.view === "live" || raw.view === "saved") result.view = raw.view;
   if (typeof raw.date === "string") {
     try {
-      result.date = weekRange(raw.date).key;
+      dateBoundary(raw.date);
+      result.date = result.period ? raw.date : weekRange(raw.date).key;
     } catch {
       /* Invalid URL dates use this week. */
     }
@@ -44,6 +52,7 @@ export function portfolioSummaries(
   events: WeekEvent[],
   tasks: WeekTask[],
   asOf: string,
+  scope: "cartera" | "persona" = "cartera",
 ) {
   const summaries = portfolios.map((p) => ({
     ...p,
@@ -51,19 +60,27 @@ export function portfolioSummaries(
     movements: 0,
     completed: 0,
     overdue: 0,
+    pending: 0,
   }));
   const index = new Map(summaries.map((p) => [p.id, p]));
   for (const e of events) {
-    const p = index.get(e.portfolioId);
+    const p = index.get(scope === "persona" ? (e.actorId ?? "") : e.portfolioId);
     if (p) {
       p.producers.add(e.producerId);
       p.movements++;
     }
   }
   for (const t of tasks) {
-    const p = index.get(t.portfolioId);
+    const p = index.get(
+      scope === "persona"
+        ? t.status === "atendida"
+          ? (t.completedBy ?? "")
+          : (t.assigneeId ?? "")
+        : t.portfolioId,
+    );
     if (p) {
       if (t.status === "atendida") p.completed++;
+      if (["pendiente", "esperando"].includes(t.status)) p.pending++;
       if (["pendiente", "esperando"].includes(t.status) && t.dueAt < asOf) p.overdue++;
     }
   }
