@@ -1,3 +1,6 @@
+import { ProducerHistory } from "@/components/producer-history";
+import { PortfolioAssignment } from "@/components/portfolio-assignment";
+import { ProducerCommunications } from "@/components/producer-communications";
 import { StageControl } from "@/components/stage-control";
 import { ProducerArchive } from "@/components/producer-archive";
 import { VisitStatusControl } from "@/components/visit-status-control";
@@ -223,6 +226,8 @@ function ProducerDetailPage() {
         />
       </div>
 
+      <PortfolioAssignment key={p.updatedAt} producer={p} />
+      <ProducerCommunications producer={p} documents={documents} />
       {p.archivedAt ? (
         <p role="status" className="rounded-lg bg-secondary p-4">
           Ficha archivada: {p.archiveReason}. El expediente se conserva.
@@ -336,7 +341,8 @@ function ProducerDetailPage() {
             <CardContent className="p-5">
               <DocsChecklist
                 documents={documents}
-                canValidate={q.data.profile.role === "gerente"}
+                canValidate={q.data.profile.role !== "comisionista"}
+                canExcept={q.data.profile.role === "gerente"}
                 readOnly={!!p.archivedAt}
                 pendingId={pendingDoc}
                 onChange={(docId, status, reason) => docMut.mutate({ id: docId, status, reason })}
@@ -431,27 +437,7 @@ function ProducerDetailPage() {
           ) : null}
         </Card>
       </fieldset>
-      {activity.length ? (
-        <details id="bitacora" className="scroll-mt-24 rounded-xl border bg-surface p-4">
-          <summary className="min-h-11 cursor-pointer py-2 font-display text-lg">
-            Bitácora · {activity.length} registros
-          </summary>
-          <h2 className="mb-3 font-display text-lg font-medium">Bitácora</h2>
-          <ol className="grid gap-2">
-            {activity.map((a) => (
-              <li
-                key={a.id}
-                className="rounded-lg bg-surface px-4 py-3 text-sm shadow-[var(--shadow-border)]"
-              >
-                <p>{a.message}</p>
-                <p className="mt-1 text-xs text-subtle">
-                  {a.actorName} · {formatAppDateTime(a.createdAt)}
-                </p>
-              </li>
-            ))}
-          </ol>
-        </details>
-      ) : null}
+      <ProducerHistory producerId={p.id} revision={p.updatedAt} />
 
       <ProducerArchive
         key={p.archivedAt ?? "active"}

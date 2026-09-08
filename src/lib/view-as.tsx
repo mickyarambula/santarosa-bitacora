@@ -14,6 +14,8 @@ type ViewAsContextValue = {
   setAgent: (name: string | null) => void;
   names: string[];
   isGerente: boolean;
+  canOperate: boolean;
+  isOffice: boolean;
   displayName: string;
   captureName: string;
 };
@@ -26,6 +28,8 @@ const ViewAsContext = createContext<ViewAsContextValue>({
   setAgent: () => {},
   names: [],
   isGerente: false,
+  canOperate: false,
+  isOffice: false,
   displayName: "",
   captureName: "",
 });
@@ -46,7 +50,7 @@ export function ViewAsProvider({ profile, children }: { profile: Profile; childr
   const namesQ = useQuery({
     queryKey: ["agent-names"],
     queryFn: () => listAgentNames(),
-    enabled: isGerente,
+    enabled: profile.role !== "comisionista",
   });
 
   function setAgent(name: string | null) {
@@ -60,7 +64,7 @@ export function ViewAsProvider({ profile, children }: { profile: Profile; childr
     }
   }
 
-  const scoped = isGerente ? agent : null;
+  const scoped = profile.role !== "comisionista" ? agent : null;
   const selected = namesQ.data?.agents?.find((a) => a.id === scoped);
   const agentLabel = scoped === MINE_SCOPE ? "tu cartera" : (selected?.label ?? scoped);
   const captureName =
@@ -77,6 +81,8 @@ export function ViewAsProvider({ profile, children }: { profile: Profile; childr
         setAgent,
         names: namesQ.data?.names ?? [],
         isGerente,
+        canOperate: profile.role !== "comisionista",
+        isOffice: profile.role === "oficina",
         displayName: profile.displayName,
         captureName,
       }}

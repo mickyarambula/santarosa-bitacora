@@ -1,4 +1,3 @@
-import { OfficeWorkspace } from "@/components/office-workspace";
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { RedirectToSignIn } from "@/lib/auth/gates";
@@ -58,7 +57,6 @@ export function AuthGate({ children }: { children: ReactNode }) {
     );
   }
 
-  if (boot.data.profile.role === "oficina") return <OfficeWorkspace profile={boot.data.profile} />;
   return (
     <ViewAsProvider profile={boot.data.profile}>
       <AppShell profile={boot.data.profile}>{children}</AppShell>

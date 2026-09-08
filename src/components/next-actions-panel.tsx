@@ -1,99 +1,148 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { listNextActions } from "@/lib/crm";
+import { listWorkInbox } from "@/lib/operations";
+import { useViewAs } from "@/lib/view-as";
 import { formatAppDateTime } from "@/lib/datetime";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
+import { Input } from "./ui/input";
+import { NativeSelect } from "./ui/native-select";
+const views = [
+  ["hoy", "Para hoy"],
+  ["vencido", "Vencido"],
+  ["esperando", "Esperando respuesta"],
+  ["pendientes", "Todas las tareas"],
+  ["asignacion", "Pendiente de asignar"],
+  ["sin_accion", "Sin siguiente paso"],
+  ["papeleria", "Papelería por revisar"],
+  ["gerencia", "Decisiones de Gerencia"],
+] as const;
+type View = (typeof views)[number][0];
 export function NextActionsPanel({ agent }: { agent: string | null }) {
-  const [view, setView] = useState<"pendientes" | "sin_accion">("pendientes"),
-    [all, setAll] = useState(false);
-  const q = useQuery({
-    queryKey: ["next-actions", agent, view],
-    queryFn: () => listNextActions({ data: { agent: agent ?? undefined, view } }),
+  const { canOperate } = useViewAs(),
+    [view, setView] = useState<View>("hoy"),
+    [scope, setScope] = useState<"mine" | "team">(canOperate ? "team" : "mine"),
+    [search, setSearch] = useState(""),
+    [q, setQ] = useState(""),
+    [page, setPage] = useState(0);
+  const r = useQuery({
+    queryKey: ["work-inbox", view, scope, q, page, agent],
+    queryFn: () => listWorkInbox({ data: { view, scope, q, page, agent: agent ?? undefined } }),
     refetchInterval: 60000,
   });
   return (
-    <section className="rounded-xl border border-border bg-surface p-4">
-      <h2 className="font-display text-xl font-medium">Qué sigue con los productores</h2>
-      <p className="mt-1 text-sm text-muted">
-        Acciones acordadas y fechas de seguimiento. Las citas se consultan en la agenda.
+    <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
+      <h2 className="font-display text-xl">Mi trabajo y pendientes del equipo</h2>
+      <p className="text-sm text-muted">
+        Qué falta, quién lo atiende y para cuándo. Horarios de Sinaloa.
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <Button
-          variant={view === "pendientes" ? "default" : "outline"}
-          onClick={() => {
-            setView("pendientes");
-            setAll(false);
-          }}
-        >
-          Pendientes{q.data ? ` (${q.data.stats.pending})` : ""}
-        </Button>
-        <Button
-          variant={view === "sin_accion" ? "default" : "outline"}
-          onClick={() => {
-            setView("sin_accion");
-            setAll(false);
-          }}
-        >
-          Sin próxima acción{q.data ? ` (${q.data.stats.missing})` : ""}
-        </Button>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <label>
+          Ver pendientes
+          <NativeSelect
+            aria-label="Ver pendientes"
+            value={view}
+            onChange={(e) => {
+              setView(e.target.value as View);
+              setPage(0);
+            }}
+          >
+            {views
+              .filter((v) => canOperate || v[0] !== "gerencia")
+              .map((v) => (
+                <option key={v[0]} value={v[0]}>
+                  {v[1]}
+                </option>
+              ))}
+          </NativeSelect>
+        </label>
+        {canOperate ? (
+          <label>
+            Responsabilidad
+            <NativeSelect
+              aria-label="Responsabilidad"
+              value={scope}
+              onChange={(e) => {
+                setScope(e.target.value as "mine" | "team");
+                setPage(0);
+              }}
+            >
+              <option value="mine">Mi atención</option>
+              <option value="team">Todo el equipo</option>
+            </NativeSelect>
+          </label>
+        ) : null}
       </div>
-      {q.isPending ? (
-        <p className="mt-3">Cargando acciones…</p>
-      ) : q.error ? (
-        <p className="mt-3" role="alert">
-          No se pudo cargar el seguimiento.{" "}
-          <Button variant="ghost" onClick={() => void q.refetch()}>
-            Reintentar
-          </Button>
-        </p>
-      ) : q.data ? (
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQ(search);
+          setPage(0);
+        }}
+      >
+        <Input
+          aria-label="Buscar pendientes"
+          placeholder="Productor, cartera o tarea"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <Button variant="outline">Buscar</Button>
+      </form>
+      {r.isPending ? (
+        <p>Cargando pendientes…</p>
+      ) : r.error ? (
+        <p role="alert">{r.error.message}</p>
+      ) : (
         <>
-          {view === "pendientes" && q.data.stats.overdue > 0 ? (
-            <p className="mt-3 text-sm font-medium text-clay">
-              {q.data.stats.overdue} con fecha vencida; confirma qué pasó.
-            </p>
-          ) : null}
-          {!q.data.items.length ? (
-            <p className="mt-3 text-sm text-muted">
-              {view === "pendientes"
-                ? "No hay acciones programadas en esta cartera. Revisa las fichas sin próxima acción."
-                : "Las fichas abiertas de esta cartera ya tienen próxima acción."}
+          <p className="text-xs text-muted">
+            {r.data?.total ?? 0} resultados · página {page + 1}
+          </p>
+          {!r.data?.items.length ? (
+            <p className="py-3 text-sm">
+              No hay pendientes con este filtro. Revisa también «Sin siguiente paso».
             </p>
           ) : (
-            <ul className="mt-3 grid gap-2">
-              {q.data.items.slice(0, all ? 100 : 6).map((a) => (
-                <li key={a.id}>
+            <ul className="space-y-2">
+              {r.data.items.map((t) => (
+                <li key={t.id}>
                   <Link
                     to="/productores/$id"
-                    params={{ id: a.id }}
-                    hash="seguimiento"
-                    className="block rounded-lg border border-border p-3 hover:bg-secondary"
+                    params={{ id: t.producerId }}
+                    hash={
+                      view === "papeleria"
+                        ? "papeleria"
+                        : view === "asignacion"
+                          ? "asignacion"
+                          : "seguimiento"
+                    }
+                    className="block rounded-lg border border-border p-3"
                   >
-                    <p className="font-medium">{a.name}</p>
-                    <p className="mt-1 break-words text-sm">{a.text ?? "Definir qué sigue"}</p>
-                    <p className="mt-1 text-xs text-muted">
-                      {a.ownerName}
-                      {a.dueAt ? ` · ${formatAppDateTime(a.dueAt)} · Sinaloa` : ""}
-                      {a.overdue ? " · Vencida" : ""}
+                    <p className="font-medium">{t.name}</p>
+                    <p className="text-sm">{t.title}</p>
+                    <p className="text-xs text-muted">
+                      {t.assignee} · {t.portfolio}
+                      {t.dueAt ? " · " + formatAppDateTime(t.dueAt) : ""}
                     </p>
                   </Link>
                 </li>
               ))}
             </ul>
           )}
-          {q.data.items.length > 6 ? (
-            <Button className="mt-3" variant="ghost" onClick={() => setAll((v) => !v)}>
-              {all ? "Mostrar menos" : "Ver más acciones"}
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={!page} onClick={() => setPage((n) => n - 1)}>
+              Anterior
             </Button>
-          ) : null}
-          {(view === "pendientes" ? q.data.stats.pending : q.data.stats.missing) > 100 ? (
-            <p className="mt-2 text-xs text-muted">
-              Se muestran las primeras 100 fichas; filtra una cartera para acotar la lista.
-            </p>
-          ) : null}
+            <Button
+              variant="outline"
+              disabled={!r.data?.hasMore}
+              onClick={() => setPage((n) => n + 1)}
+            >
+              Siguiente
+            </Button>
+          </div>
         </>
-      ) : null}
+      )}
     </section>
   );
 }

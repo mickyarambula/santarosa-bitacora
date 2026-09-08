@@ -45,7 +45,7 @@ const MORE = [
 
 export function AppShell({ profile, children }: { profile: Profile; children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
-  const { agent, agentLabel, setAgent, names, agents, isGerente } = useViewAs();
+  const { agent, agentLabel, setAgent, names, agents, canOperate } = useViewAs();
   const [moreOpen, setMoreOpen] = useState(false);
   const moreItems = MORE.filter((item) => {
     if (item.to === "/duplicados" && profile.role !== "gerente") return false;
@@ -68,7 +68,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             <NavLink
               key={item.to}
               to={item.to}
-              label={item.label}
+              label={item.to === "/productores" && canOperate ? "Productores" : item.label}
               icon={item.icon}
               pathname={pathname}
               dark
@@ -88,10 +88,14 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         </nav>
         <div className="mt-auto border-t border-primary-fg/10 p-4">
           <p className="text-xs uppercase tracking-wider text-sidebar-muted">
-            {profile.role === "gerente" ? "Gerencia · ve a todos y captura" : "Comisionista"}
+            {profile.role === "gerente"
+              ? "Gerencia · ve a todos y captura"
+              : profile.role === "oficina"
+                ? "Oficina · atención del equipo"
+                : "Comisionista"}
           </p>
           <p className="mt-1 truncate font-medium">{profile.displayName}</p>
-          {isGerente && names.length > 0 ? (
+          {canOperate && names.length > 0 ? (
             <label className="mt-3 block">
               <span className="text-[11px] uppercase tracking-wider text-sidebar-muted">
                 Ver cartera de
@@ -102,7 +106,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 onChange={(e) => setAgent(e.target.value || null)}
               >
                 <option value="">Todo el equipo</option>
-                <option value={MINE_SCOPE}>Mi cartera</option>
+                {profile.role !== "oficina" ? <option value={MINE_SCOPE}>Mi cartera</option> : null}
                 {agents
                   .filter((n) => n.id !== "uid:" + profile.userId)
                   .map((n) => (
@@ -123,7 +127,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border bg-bg px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3 md:hidden">
           <BrandLogo variant="header" on="light" home />
           <div className="flex min-w-0 items-center gap-2">
-            {isGerente && names.length > 0 ? (
+            {canOperate && names.length > 0 ? (
               <select
                 aria-label="Ver cartera de"
                 className="h-10 max-w-36 truncate rounded-full border-0 bg-secondary px-3 text-xs font-medium text-primary"
@@ -131,7 +135,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 onChange={(e) => setAgent(e.target.value || null)}
               >
                 <option value="">Todo el equipo</option>
-                <option value={MINE_SCOPE}>Mi cartera</option>
+                {profile.role !== "oficina" ? <option value={MINE_SCOPE}>Mi cartera</option> : null}
                 {agents
                   .filter((n) => n.id !== "uid:" + profile.userId)
                   .map((n) => (
@@ -155,11 +159,11 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-secondary px-4 py-2 text-sm md:px-8">
             <p>
               {agent === MINE_SCOPE ? (
-                "Viendo tu cartera — lo que capturaste tú."
+                "Viendo la cartera que tienes asignada."
               ) : (
                 <>
                   Cartera de <span className="font-medium">{agentLabel}</span> — sigues usando tus
-                  permisos de gerencia.
+                  permisos habituales.
                 </>
               )}
             </p>
@@ -168,7 +172,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
               className="font-medium text-primary underline-offset-4 hover:underline"
               onClick={() => setAgent(null)}
             >
-              Volver a gerencia
+              Ver todo el equipo
             </button>
           </div>
         ) : null}
@@ -245,7 +249,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 )}
               >
                 <Icon className="size-5" />
-                {item.label}
+                {canOperate && item.to === "/productores" ? "Productores" : item.label}
               </Link>
             );
           })}
