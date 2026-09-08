@@ -47,7 +47,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
   if (boot.isPending || !boot.data) return <Splash />;
 
   if (boot.data.profile.status === "bloqueado") {
-    return <LockedScreen mergedIntoEmail={boot.data.profile.mergedIntoEmail} />;
+    return (
+      <LockedScreen
+        mergedIntoEmail={boot.data.profile.mergedIntoEmail}
+        duplicateReview={boot.data.profile.duplicateReview}
+      />
+    );
   }
 
   return (
@@ -57,13 +62,23 @@ export function AuthGate({ children }: { children: ReactNode }) {
   );
 }
 
-function LockedScreen({ mergedIntoEmail }: { mergedIntoEmail?: string | null }) {
+function LockedScreen({
+  mergedIntoEmail,
+  duplicateReview,
+}: {
+  mergedIntoEmail?: string | null;
+  duplicateReview?: boolean;
+}) {
   return (
     <main className="grid min-h-dvh place-items-center bg-bg px-6 text-center text-fg">
       <div className="max-w-sm">
         <BrandLogo variant="lockup" on="light" className="mx-auto w-44" priority />
         <h1 className="mt-6 font-display text-2xl font-medium tracking-tight">
-          {mergedIntoEmail ? "Tu cuenta fue unificada" : "Esta cuenta no está autorizada"}
+          {mergedIntoEmail
+            ? "Tu cuenta fue unificada"
+            : duplicateReview
+              ? "Revisemos tu cuenta existente"
+              : "Esta cuenta no está autorizada"}
         </h1>
         <p className="mt-3 text-sm leading-relaxed text-muted">
           {mergedIntoEmail ? (
@@ -71,6 +86,12 @@ function LockedScreen({ mergedIntoEmail }: { mergedIntoEmail?: string | null }) 
               Tus productores están reunidos en <strong>{mergedIntoEmail}</strong>. Sal de esta
               cuenta y entra con ese correo con su método habitual de acceso.
             </>
+          ) : duplicateReview ? (
+            <span>
+              Hay una coincidencia con otra cuenta del equipo. Este acceso no puede capturar
+              productores hasta que gerencia lo revise. Si ya tienes cuenta, sal y entra con tu
+              correo habitual.
+            </span>
           ) : (
             <>
               Pide a gerencia que habilite tu cuenta desde Equipo. Volver a escribir la clave del

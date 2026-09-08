@@ -1,3 +1,4 @@
+import { accountMatches } from "./account-identity";
 import { writeAudit } from "./crm-audit";
 import { previewConsolidation, consolidateAccounts } from "./account-consolidation";
 import { createServerFn } from "@tanstack/react-start";
@@ -115,6 +116,7 @@ type ProfileRow = {
   role: string;
   status?: string;
   merged_into_user_id?: string | null;
+  duplicate_review?: boolean;
   email?: string | null;
   phone: string | null;
   created_at: string | Date;
@@ -131,6 +133,7 @@ function mapProfile(row: ProfileRow): Profile {
     userId: row.user_id,
     displayName: row.display_name,
     mergedIntoUserId: row.merged_into_user_id ?? null,
+    duplicateReview: Boolean(row.duplicate_review),
     role: (row.role === "gerente" ? "gerente" : "comisionista") as Role,
     status: row.status === "bloqueado" ? "bloqueado" : "activo",
     phone: row.phone,
@@ -283,7 +286,7 @@ async function ensureProfile(
   accessCode?: string | null,
 ): Promise<Profile> {
   const existing = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
     from profiles where user_id = ${userId} limit 1
   `;
   const revoked = await sql<{ user_id: string }>`
@@ -309,12 +312,19 @@ async function ensureProfile(
     if (lock.enabled && !accessCodeOk(accessCode, lock.codeHash)) status = "bloqueado";
   }
 
+  const authName = (
+    await sql<{ name: string }>`select name from "user" where id=${userId}`
+  )[0]?.name?.trim();
+  const checkedName = authName || name;
+  const possibleDuplicates = await accountMatches(sql, userId, checkedName);
+  const duplicateReview = possibleDuplicates.length > 0;
+  if (duplicateReview) status = "bloqueado";
   await sql`
-    insert into profiles (user_id, display_name, role, status)
-    values (${userId}, ${name}, ${role}, ${status})
+    insert into profiles (user_id, display_name, role, status,duplicate_review)
+    values (${userId}, ${checkedName}, ${role}, ${status},${duplicateReview})
   `;
   const created = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
     from profiles where user_id = ${userId} limit 1
   `;
   return mapProfile(created[0]!);
@@ -727,7 +737,7 @@ export const setLock = createServerFn({ method: "POST" })
 
 export const setMemberStatus = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((d: { userId: string; status: AccountStatus }) => d)
+  .validator((d: { userId: string; status: AccountStatus; identityReviewReason?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
@@ -736,7 +746,7 @@ export const setMemberStatus = createServerFn({ method: "POST" })
         throw new Error("Estado de cuenta no válido.");
       if (data.userId === me.userId) throw new Error("No puedes inhabilitarte a ti mismo.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -752,7 +762,27 @@ export const setMemberStatus = createServerFn({ method: "POST" })
       }
       if (rows[0]?.merged_into_user_id)
         throw new Error("Esta cuenta fue unificada; usa la cuenta de destino.");
-      await sql`update profiles set status = ${data.status} where user_id = ${target.userId}`;
+      const identityReason = data.identityReviewReason?.trim() ?? "";
+      if (data.status === "activo" && target.duplicateReview) {
+        if (identityReason.length < 10 || identityReason.length > 1000)
+          throw new Error(
+            "Revisa la coincidencia y explica por qué son personas distintas antes de habilitar (10 a 1,000 caracteres).",
+          );
+        const matches = await accountMatches(sql, target.userId, target.displayName, target.phone);
+        await writeAudit(
+          sql,
+          me,
+          "cuenta",
+          target.userId,
+          "autorizar_homonimo",
+          {
+            name: target.displayName,
+            matches: matches.map((m) => ({ userId: m.user_id, name: m.display_name })),
+          },
+          { reason: identityReason },
+        );
+      }
+      await sql`update profiles set status = ${data.status},duplicate_review=case when ${data.status}='activo' then false else duplicate_review end where user_id = ${target.userId}`;
       if (data.status === "bloqueado") {
         await sql`
         insert into revoked_users (user_id, revoked_by, reason)
@@ -776,7 +806,7 @@ export const deleteMember = createServerFn({ method: "POST" })
       if (me.role !== "gerente") throw new Error("Solo gerencia puede eliminar cuentas.");
       if (data.userId === me.userId) throw new Error("No puedes borrar tu propia cuenta.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -828,6 +858,20 @@ export const updateMyProfile = createServerFn({ method: "POST" })
       const profile = await requireProfile(sql, context.userId);
       const displayName = data.displayName.trim();
       if (!displayName) throw new Error("Escribe cómo te dicen.");
+      const phone = data.phone?.trim() || null;
+      if (displayName !== profile.displayName || phone !== profile.phone) {
+        const matches = await accountMatches(sql, profile.userId, displayName, phone);
+        const oldMatches = await accountMatches(
+          sql,
+          profile.userId,
+          profile.displayName,
+          profile.phone,
+        );
+        if (matches.some((m) => !oldMatches.some((old) => old.user_id === m.user_id)))
+          throw new Error(
+            "Ese nombre o teléfono coincide con otra cuenta. Pide a gerencia revisar el acceso antes de crear una duplicidad.",
+          );
+      }
       await sql`
       update profiles
       set display_name = ${displayName},
@@ -3223,3 +3267,145 @@ export const rescheduleVisit = createServerFn({ method: "POST" })
       return { ok: true };
     }),
   );
+
+async function readNextAction(sql: Sql, producer: Producer) {
+  const row = (
+    await sql<ProducerRow>`select next_action,next_action_at,next_action_version from producers where id=${producer.id}`
+  )[0]!;
+  return {
+    producerId: producer.id,
+    text: row.next_action ? String(row.next_action) : null,
+    dueAt: row.next_action_at ? iso(row.next_action_at) : null,
+    version: String(row.next_action_version),
+    ownerName: producer.comisionistaName,
+    closed: producer.stage === "cerrado" || producer.cycle !== CYCLE,
+  };
+}
+export const getNextAction = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { producerId: string }) => d)
+  .handler(async ({ context, data }) => {
+    const sql = await getSql(),
+      me = await requireProfile(sql, context.userId);
+    return readNextAction(sql, await assertCanEdit(sql, me, data.producerId));
+  });
+export const saveNextAction = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      producerId: string;
+      text: string;
+      dueAt: string;
+      reason?: string;
+      expectedVersion: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId),
+        producer = await assertCanEdit(sql, me, data.producerId);
+      const before = await readNextAction(sql, producer);
+      if (before.closed)
+        throw new Error(
+          "Para programar un seguimiento, la ficha debe estar abierta en el ciclo actual.",
+        );
+      if (before.version !== data.expectedVersion)
+        throw new Error("El seguimiento cambió. Actualiza la ficha antes de guardar.");
+      const text = data.text?.trim(),
+        reason = data.reason?.trim() ?? "",
+        date = parseLocalDateTime(data.dueAt ?? "");
+      if (!text || text.length > 500)
+        throw new Error("Describe la próxima acción en hasta 500 caracteres.");
+      if (Number.isNaN(date.getTime()))
+        throw new Error("Indica una fecha y hora válidas de Sinaloa.");
+      if (before.text && (!reason || reason.length > 1000))
+        throw new Error("Anota por qué cambia el seguimiento (hasta 1,000 caracteres).");
+      const version = newId("seg");
+      await sql`update producers set next_action=${text},next_action_at=${date.toISOString()},next_action_version=${version},updated_at=now() where id=${producer.id}`;
+      await writeAudit(
+        sql,
+        me,
+        "seguimiento",
+        producer.id,
+        before.text ? "cambiar" : "programar",
+        before,
+        { text, dueAt: date.toISOString(), reason, ownerId: producer.ownerUserId, version },
+      );
+      await logActivity(
+        sql,
+        producer.id,
+        me.userId,
+        "seguimiento",
+        before.text
+          ? `Seguimiento cambiado: ${before.text} (${formatAppDateTime(before.dueAt!)}) → ${text} (${formatAppDateTime(date)}). Motivo: ${reason}.`
+          : `Próxima acción: ${text}. Fecha: ${formatAppDateTime(date)}. Responsable: ${producer.comisionistaName}.`,
+      );
+      return { ok: true };
+    }),
+  );
+export const finishNextAction = createServerFn({ method: "POST" })
+  .middleware([authMiddleware])
+  .validator(
+    (d: {
+      producerId: string;
+      outcome: string;
+      status: "atendida" | "cancelada";
+      expectedVersion: string;
+    }) => d,
+  )
+  .handler(async ({ context, data }) =>
+    (await getSql()).transaction(async (sql) => {
+      const me = await requireProfile(sql, context.userId),
+        producer = await assertCanEdit(sql, me, data.producerId),
+        before = await readNextAction(sql, producer);
+      if (!["atendida", "cancelada"].includes(data.status)) throw new Error("Resultado no válido.");
+      if (!before.text || before.version !== data.expectedVersion)
+        throw new Error("El seguimiento cambió o ya se atendió. Actualiza la ficha.");
+      const outcome = data.outcome?.trim();
+      if (!outcome || outcome.length > 1000)
+        throw new Error("Anota el resultado o motivo en hasta 1,000 caracteres.");
+      await sql`update producers set next_action=null,next_action_at=null,next_action_version=${newId("seg")},updated_at=now() where id=${producer.id}`;
+      await writeAudit(sql, me, "seguimiento", producer.id, data.status, before, {
+        outcome,
+        ownerId: producer.ownerUserId,
+      });
+      await logActivity(
+        sql,
+        producer.id,
+        me.userId,
+        "seguimiento",
+        `Acción ${data.status}: ${before.text}. Programada: ${formatAppDateTime(before.dueAt!)}. Resultado / motivo: ${outcome}.`,
+      );
+      return { ok: true };
+    }),
+  );
+export const listNextActions = createServerFn({ method: "GET" })
+  .middleware([authMiddleware])
+  .validator((d: { agent?: string; view?: "pendientes" | "sin_accion" } | undefined) => d ?? {})
+  .handler(async ({ context, data }) => {
+    const sql = await getSql(),
+      me = await requireProfile(sql, context.userId),
+      { mine, agent } = agentScope(me, data.agent);
+    const view = data.view ?? "pendientes";
+    if (!["pendientes", "sin_accion"].includes(view)) throw new Error("Filtro no válido.");
+    const stats = (
+      await sql<{
+        pending: number;
+        overdue: number;
+        missing: number;
+      }>`select count(*) filter(where next_action is not null)::int as pending,count(*) filter(where next_action_at<now())::int as overdue,count(*) filter(where next_action is null)::int as missing from producers where cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or comisionista_name=${agent})`
+    )[0]!;
+    const rows =
+      await sql<ProducerRow>`select id,name,comisionista_name,next_action,next_action_at from producers where cycle=${CYCLE} and stage<>'cerrado' and (not ${mine} or owner_user_id=${me.userId}) and (${mine} or ${agent}='' or comisionista_name=${agent}) and (case when ${view}='sin_accion' then next_action is null else next_action is not null end) order by next_action_at asc nulls last,name,id limit 100`;
+    return {
+      stats,
+      items: rows.map((r) => ({
+        id: String(r.id),
+        name: String(r.name),
+        ownerName: String(r.comisionista_name),
+        text: r.next_action ? String(r.next_action) : null,
+        dueAt: r.next_action_at ? iso(r.next_action_at) : null,
+        overdue: !!r.next_action_at && new Date(String(r.next_action_at)).getTime() < Date.now(),
+      })),
+    };
+  });

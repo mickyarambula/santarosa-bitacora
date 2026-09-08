@@ -99,7 +99,11 @@ function Login() {
             pelearte con el Excel. {COMPANY}, Los Mochis y Guasave.
           </p>
           {import.meta.env.VITE_AUTH_MODE === "standalone" && (
-            <p className="mt-4 text-xs text-subtle"><a href="/privacidad.html" className="underline">Privacidad y contacto</a></p>
+            <p className="mt-4 text-xs text-subtle">
+              <a href="/privacidad.html" className="underline">
+                Privacidad y contacto
+              </a>
+            </p>
           )}
         </section>
 
@@ -111,7 +115,9 @@ function Login() {
           <h2 className="mt-5 font-display text-2xl font-medium tracking-tight lg:mt-0 lg:text-3xl">
             Entra para capturar
           </h2>
-          <p className="mt-1 text-sm text-muted">El ciclo {CYCLE} de {COMPANY}.</p>
+          <p className="mt-1 text-sm text-muted">
+            El ciclo {CYCLE} de {COMPANY}.
+          </p>
 
           {authEnabled ? (
             <div className="mt-6 grid gap-2">
@@ -126,10 +132,12 @@ function Login() {
                     rememberCode(accessCode);
                     setBusy(true);
                     setError(null);
-                    signIn(p.providerId, { callbackURL: "/", errorCallbackURL: "/login" }).catch((err) => {
-                      setError(err instanceof Error ? err.message : "No se pudo entrar.");
-                      setBusy(false);
-                    });
+                    signIn(p.providerId, { callbackURL: "/", errorCallbackURL: "/login" }).catch(
+                      (err) => {
+                        setError(err instanceof Error ? err.message : "No se pudo entrar.");
+                        setBusy(false);
+                      },
+                    );
                   }}
                 >
                   Continuar con {p.label}
@@ -146,13 +154,20 @@ function Login() {
             <span className="h-px flex-1 bg-border" />
           </div>
 
+          {mode === "crear" ? (
+            <p className="mb-3 text-sm text-muted">
+              Si ya tienes cuenta, entra con tu correo habitual. Una coincidencia con otro nombre
+              quedará pendiente de revisión de gerencia.
+            </p>
+          ) : null}
           <form className="grid gap-3" onSubmit={onEmail}>
             {mode === "crear" ? (
               <Input
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Cómo te dicen en el campo"
+                placeholder="Nombre completo (como te conoce el equipo)"
+                aria-label="Nombre completo"
                 autoComplete="name"
               />
             ) : null}
@@ -188,9 +203,7 @@ function Login() {
               {showPass ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               {showPass ? "Ocultar contraseña" : "Ver contraseña"}
             </button>
-            {tooShort ? (
-              <p className="text-sm text-muted">Mínimo 8 caracteres.</p>
-            ) : null}
+            {tooShort ? <p className="text-sm text-muted">Mínimo 8 caracteres.</p> : null}
             {mismatch ? (
               <p className="text-sm text-destructive">No coinciden. Escríbela otra vez.</p>
             ) : mode === "crear" && confirm.length > 0 && password === confirm ? (
@@ -217,6 +230,7 @@ function Login() {
           <button
             type="button"
             className="mt-4 w-full text-center text-sm text-muted underline-offset-4 hover:underline"
+            disabled={busy || isPending}
             onClick={() => {
               setMode(mode === "crear" ? "entrar" : "crear");
               setError(null);

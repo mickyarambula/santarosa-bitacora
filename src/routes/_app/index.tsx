@@ -1,3 +1,4 @@
+import { NextActionsPanel } from "@/components/next-actions-panel";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertCircle, CalendarClock, Copy, FolderOpen, Phone, Plus } from "lucide-react";
@@ -231,6 +232,7 @@ function Hoy() {
             financing={d.kpis.financing}
           />
 
+          <NextActionsPanel key={agent ?? "all"} agent={agent} />
           <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
             <Card>
               <CardHeader className="flex-row items-center justify-between">

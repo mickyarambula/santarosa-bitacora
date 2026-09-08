@@ -179,7 +179,7 @@ test("preview, expired availability and invalid expiry fail closed", () => {
 
 test("the original 17-table migration backup remains recoverable after the audit schema is added", async () => {
   const legacy = await createIsolatedBackupDatabase(
-    migrations.filter((n) => n !== "0013_traceability.sql"),
+    migrations.slice(0, migrations.indexOf("0013_traceability.sql")),
   );
   try {
     await legacy.db.exec(

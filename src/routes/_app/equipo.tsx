@@ -144,7 +144,9 @@ function EquipoPage() {
                       <span className="ml-2 text-xs text-subtle">tú</span>
                     ) : null}
                     {a.status === "bloqueado" ? (
-                      <span className="ml-2 text-xs font-medium text-clay">inhabilitado</span>
+                      <span className="ml-2 text-xs font-medium text-clay">
+                        {a.duplicateReview ? "posible duplicado · sin acceso" : "inhabilitado"}
+                      </span>
                     ) : null}
                   </td>
                   <td className="px-4 py-3">
@@ -188,7 +190,12 @@ function EquipoPage() {
                       {a.userId === me.userId ? (
                         <span className="text-xs text-subtle">—</span>
                       ) : (
-                        <MemberActions name={a.displayName} userId={a.userId} status={a.status} />
+                        <MemberActions
+                          name={a.displayName}
+                          userId={a.userId}
+                          status={a.status}
+                          duplicateReview={a.duplicateReview}
+                        />
                       )}
                     </td>
                   ) : null}
@@ -339,17 +346,23 @@ function MemberActions({
   name,
   userId,
   status,
+  duplicateReview,
 }: {
   name: string;
   userId: string;
   status: AccountStatus;
+  duplicateReview?: boolean;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState("");
+  const [identityOpen, setIdentityOpen] = useState(false),
+    [identityReason, setIdentityReason] = useState("");
   const statusMut = useMutation({
     mutationFn: setMemberStatus,
     onSuccess: () => {
+      setIdentityOpen(false);
+      setIdentityReason("");
       toast.success(status === "bloqueado" ? "Cuenta habilitada." : "Cuenta inhabilitada.");
       void qc.invalidateQueries({ queryKey: ["team"] });
     },
@@ -369,18 +382,60 @@ function MemberActions({
 
   return (
     <div className="flex flex-wrap gap-1">
+      <Dialog
+        open={identityOpen}
+        onOpenChange={(v) => {
+          if (!statusMut.isPending) setIdentityOpen(v);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Revisar posible cuenta duplicada</DialogTitle>
+            <DialogDescription>
+              {name}. Si es la misma persona, conserva su cuenta original o usa «Unificar cuentas
+              duplicadas». Habilita este acceso solo si confirmaste que son personas distintas.
+            </DialogDescription>
+          </DialogHeader>
+          <label className="grid gap-1 text-sm">
+            Cómo confirmaste que son personas distintas
+            <Input
+              value={identityReason}
+              maxLength={1000}
+              onChange={(e) => setIdentityReason(e.target.value)}
+            />
+          </label>
+          <Button
+            disabled={statusMut.isPending || identityReason.trim().length < 10}
+            onClick={() =>
+              statusMut.mutate({
+                data: { userId, status: "activo", identityReviewReason: identityReason },
+              })
+            }
+          >
+            Confirmar persona distinta y habilitar
+          </Button>
+        </DialogContent>
+      </Dialog>
       <Button
         type="button"
         variant="outline"
         size="sm"
         disabled={statusMut.isPending}
-        onClick={() =>
+        onClick={() => {
+          if (status === "bloqueado" && duplicateReview) {
+            setIdentityOpen(true);
+            return;
+          }
           statusMut.mutate({
             data: { userId, status: status === "bloqueado" ? "activo" : "bloqueado" },
-          })
-        }
+          });
+        }}
       >
-        {status === "bloqueado" ? "Habilitar" : "Inhabilitar"}
+        {status === "bloqueado"
+          ? duplicateReview
+            ? "Revisar coincidencia"
+            : "Habilitar"
+          : "Inhabilitar"}
       </Button>
       <Button
         type="button"

@@ -15,6 +15,7 @@ export type Role = "gerente" | "comisionista";
 export type AccountStatus = "activo" | "bloqueado";
 
 export type Profile = {
+  duplicateReview?: boolean;
   mergedIntoUserId?: string | null;
   mergedIntoEmail?: string | null;
   userId: string;

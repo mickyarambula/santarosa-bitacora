@@ -1,3 +1,4 @@
+import { NextAction } from "@/components/next-action";
 import { RescheduleVisit } from "@/components/reschedule-visit";
 import { Link, createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -190,6 +191,9 @@ function ProducerDetailPage() {
       </header>
       <nav aria-label="Secciones de la ficha" className="flex flex-wrap gap-2">
         <Button asChild variant="outline">
+          <a href="#seguimiento">Seguimiento</a>
+        </Button>
+        <Button asChild variant="outline">
           <a href="#papeleria">Papelería</a>
         </Button>
         <Button asChild variant="outline">
@@ -222,6 +226,8 @@ function ProducerDetailPage() {
           }
         />
       </div>
+
+      <NextAction producerId={p.id} />
 
       {q.data.profile.role === "gerente" ? (
         <RejectionPanel
