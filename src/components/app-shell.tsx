@@ -82,15 +82,43 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             />
           ))}
           <div className="my-3 h-px bg-primary-fg/10" />
-          {moreItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              label={item.label}
-              icon={item.icon}
-              pathname={pathname}
-              dark
-            />
+          {[
+            {
+              label: "Herramientas de cartera",
+              items: moreItems.filter((i) => !["/equipo", "/duplicados"].includes(i.to)),
+            },
+            {
+              label: canOperate ? "Administración" : "Equipo",
+              items: moreItems.filter((i) => ["/equipo", "/duplicados"].includes(i.to)),
+            },
+          ].map((group) => (
+            <details
+              key={group.label}
+              open={group.items.some((i) => pathname.startsWith(i.to))}
+              className="py-1"
+            >
+              <summary className="cursor-pointer rounded-lg px-3 py-3 text-sm font-medium text-sidebar-muted">
+                {group.label}
+              </summary>
+              <div className="mt-1 grid gap-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    label={
+                      item.to === "/equipo"
+                        ? canOperate
+                          ? "Equipo y accesos"
+                          : "Equipo"
+                        : item.label
+                    }
+                    icon={item.icon}
+                    pathname={pathname}
+                    dark
+                  />
+                ))}
+              </div>
+            </details>
           ))}
         </nav>
         <div className="mt-auto border-t border-primary-fg/10 p-4">

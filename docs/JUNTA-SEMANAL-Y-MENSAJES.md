@@ -4,7 +4,7 @@ Entrega en la rama `codex/junta-semanal-y-mensajes`. Este documento describe có
 
 ## Qué cambia
 
-- **Hoy:** acceso principal por función. Gerencia tiene Junta semanal y decisiones; Oficina, recepción y papelería; Comisionista, Registrar seguimiento y sus pendientes. Los totales y las etapas se consultan desplegando sus secciones. Se elimina el bloque duplicado «Qué urge» del inicio; sus herramientas siguen en el CRM.
+- **Hoy:** acceso principal por función. En escritorio, las herramientas secundarias y la administración se agrupan en secciones desplegables; en celular permanecen dentro de Más. Gerencia tiene Junta semanal y decisiones; Oficina, recepción y papelería; Comisionista, Registrar seguimiento y sus pendientes. Los totales y las etapas se consultan desplegando sus secciones. Se elimina el bloque duplicado «Qué urge» del inicio; sus herramientas siguen en el CRM.
 - **Junta semanal / Mi semana:** elegir una fecha selecciona lunes–domingo en Sinaloa. Gerencia y Oficina ven todas las carteras; Comisionista solo la suya. Empresa y pendientes de asignar permanecen separados de los comisionistas. Los nombres iguales no fusionan cuentas: la agrupación usa identificadores.
 - **Avisos:** pestañas separadas para el equipo y para productores. Los mensajes nuevos pasan por destinatarios, revisión y guardado antes de abrir WhatsApp.
 

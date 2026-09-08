@@ -13,6 +13,7 @@ import { NativeSelect } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 export const Route = createFileRoute("/_app/junta")({ component: WeeklyPage });
 function WeeklyPage() {
+  const { canOperate } = useViewAs();
   const [day, setDay] = useState(() => appDateKey(new Date()));
   const range = weekRange(day);
   const move = (n: number) => {
@@ -23,7 +24,7 @@ function WeeklyPage() {
   return (
     <div className="mx-auto max-w-6xl space-y-5">
       <header>
-        <h1 className="font-display text-3xl">Junta semanal</h1>
+        <h1 className="font-display text-3xl">{canOperate ? "Junta semanal" : "Mi semana"}</h1>
         <p className="text-muted">
           Revisar lo trabajado, resolver trabas y acordar el siguiente paso.
         </p>
