@@ -29,12 +29,15 @@ export const BACKUP_TABLES = [
   "revoked_users",
   "announcements",
   "crm_audit",
+  "team_invitations",
   "_migrations",
 ] as const;
 export function backupTablesForMigrations(migrations: readonly string[]) {
-  return migrations.includes("0013_traceability.sql")
-    ? [...BACKUP_TABLES]
-    : BACKUP_TABLES.filter((t) => t !== "crm_audit");
+  return BACKUP_TABLES.filter(
+    (t) =>
+      (t !== "crm_audit" || migrations.includes("0013_traceability.sql")) &&
+      (t !== "team_invitations" || migrations.includes("0018_team_invitations.sql")),
+  );
 }
 export type BackupTableName = (typeof BACKUP_TABLES)[number];
 export type BackupQuery = (

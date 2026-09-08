@@ -28,6 +28,8 @@ export async function previewConsolidation(
   if (!source || !target) throw new Error("No encontramos ambas cuentas.");
   if (source.merged_into_user_id || target.merged_into_user_id)
     throw new Error("Una cuenta ya fue unificada. Actualiza la lista.");
+  if (target.role === "oficina")
+    throw new Error("La cuenta de destino debe llevar cartera de campo o gerencia.");
   if (target.status !== "activo") throw new Error("La cuenta que se conserva debe estar activa.");
   const references =
     await sql`select user_id from profiles where merged_into_user_id=${sourceId} limit 1`;

@@ -192,9 +192,9 @@ export const STAGES = [
   },
   {
     id: "cerrado",
-    label: "Cerrado / no califica",
+    label: "Cerrado",
     short: "Cerrado",
-    hint: "No siguió, no calificó, o se perdió.",
+    hint: "El trato terminó; consulta su resultado y motivo de cierre.",
     tone: "rose",
   },
 ] as const;
@@ -204,6 +204,7 @@ export type StageId = (typeof STAGES)[number]["id"];
 export const DOC_STATUS = [
   { id: "pendiente", label: "Pendiente" },
   { id: "recibido", label: "Lo tiene" },
+  { id: "entregado", label: "Recibido en oficina" },
   { id: "validado", label: "Validado" },
   { id: "no_hizo", label: "No lo hizo" },
   { id: "no_aplica", label: "No aplica" },
@@ -212,7 +213,12 @@ export const DOC_STATUS = [
 export type DocStatus = (typeof DOC_STATUS)[number]["id"];
 
 export function docIsComplete(status: string): boolean {
-  return status === "recibido" || status === "validado" || status === "no_aplica";
+  return (
+    status === "entregado" ||
+    status === "recibido" ||
+    status === "validado" ||
+    status === "no_aplica"
+  );
 }
 
 export const DOC_CATALOG: Record<SchemeId, { id: string; label: string; required: boolean }[]> = {
