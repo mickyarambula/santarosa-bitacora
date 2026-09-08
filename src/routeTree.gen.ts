@@ -20,6 +20,7 @@ import { Route as AppEquipoRouteImport } from './routes/_app/equipo'
 import { Route as AppExportarRouteImport } from './routes/_app/exportar'
 import { Route as AppGruposRouteImport } from './routes/_app/grupos'
 import { Route as AppGuiaRouteImport } from './routes/_app/guia'
+import { Route as AppJuntaRouteImport } from './routes/_app/junta'
 import { Route as AppPapeleriaRouteImport } from './routes/_app/papeleria'
 import { Route as AppRecordatoriosRouteImport } from './routes/_app/recordatorios'
 import { Route as ApiMigrationBackupRouteImport } from './routes/api/migration-backup'
@@ -82,6 +83,11 @@ const AppGuiaRoute = AppGuiaRouteImport.update({
   path: '/guia',
   getParentRoute: () => AppRoute,
 } as any)
+const AppJuntaRoute = AppJuntaRouteImport.update({
+  id: '/junta',
+  path: '/junta',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppPapeleriaRoute = AppPapeleriaRouteImport.update({
   id: '/papeleria',
   path: '/papeleria',
@@ -129,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/exportar': typeof AppExportarRoute
   '/grupos': typeof AppGruposRoute
   '/guia': typeof AppGuiaRoute
+  '/junta': typeof AppJuntaRoute
   '/papeleria': typeof AppPapeleriaRoute
   '/recordatorios': typeof AppRecordatoriosRoute
   '/api/migration-backup': typeof ApiMigrationBackupRoute
@@ -147,6 +154,7 @@ export interface FileRoutesByTo {
   '/exportar': typeof AppExportarRoute
   '/grupos': typeof AppGruposRoute
   '/guia': typeof AppGuiaRoute
+  '/junta': typeof AppJuntaRoute
   '/papeleria': typeof AppPapeleriaRoute
   '/recordatorios': typeof AppRecordatoriosRoute
   '/api/migration-backup': typeof ApiMigrationBackupRoute
@@ -168,6 +176,7 @@ export interface FileRoutesById {
   '/_app/exportar': typeof AppExportarRoute
   '/_app/grupos': typeof AppGruposRoute
   '/_app/guia': typeof AppGuiaRoute
+  '/_app/junta': typeof AppJuntaRoute
   '/_app/papeleria': typeof AppPapeleriaRoute
   '/_app/recordatorios': typeof AppRecordatoriosRoute
   '/api/migration-backup': typeof ApiMigrationBackupRoute
@@ -190,6 +199,7 @@ export interface FileRouteTypes {
     | '/exportar'
     | '/grupos'
     | '/guia'
+    | '/junta'
     | '/papeleria'
     | '/recordatorios'
     | '/api/migration-backup'
@@ -208,6 +218,7 @@ export interface FileRouteTypes {
     | '/exportar'
     | '/grupos'
     | '/guia'
+    | '/junta'
     | '/papeleria'
     | '/recordatorios'
     | '/api/migration-backup'
@@ -228,6 +239,7 @@ export interface FileRouteTypes {
     | '/_app/exportar'
     | '/_app/grupos'
     | '/_app/guia'
+    | '/_app/junta'
     | '/_app/papeleria'
     | '/_app/recordatorios'
     | '/api/migration-backup'
@@ -324,6 +336,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppGuiaRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/junta': {
+      id: '/_app/junta'
+      path: '/junta'
+      fullPath: '/junta'
+      preLoaderRoute: typeof AppJuntaRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/papeleria': {
       id: '/_app/papeleria'
       path: '/papeleria'
@@ -385,6 +404,7 @@ interface AppRouteChildren {
   AppExportarRoute: typeof AppExportarRoute
   AppGruposRoute: typeof AppGruposRoute
   AppGuiaRoute: typeof AppGuiaRoute
+  AppJuntaRoute: typeof AppJuntaRoute
   AppPapeleriaRoute: typeof AppPapeleriaRoute
   AppRecordatoriosRoute: typeof AppRecordatoriosRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -402,6 +422,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppExportarRoute: AppExportarRoute,
   AppGruposRoute: AppGruposRoute,
   AppGuiaRoute: AppGuiaRoute,
+  AppJuntaRoute: AppJuntaRoute,
   AppPapeleriaRoute: AppPapeleriaRoute,
   AppRecordatoriosRoute: AppRecordatoriosRoute,
   AppIndexRoute: AppIndexRoute,

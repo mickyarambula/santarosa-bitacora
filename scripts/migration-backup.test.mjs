@@ -71,6 +71,9 @@ before(async () => {
     insert into team_invitations(id,email,token_hash,created_by,expires_at) values('invite-test','invite@test.invalid','fictional-invite-hash','owner-test','2027-01-01');
     insert into producer_tasks(id,producer_id,title,assignee_id,due_at,created_by,version) values('task-test','producer-test','Tarea ficticia','agent-test','2027-01-01','owner-test','v1');
     insert into producer_communications(id,producer_id,channel,direction,status,destination,body,created_by,version) values('comm-test','producer-test','whatsapp','salida','borrador','0000000000','Contenido ficticio','owner-test','v1');
+    insert into weekly_meetings(id,cycle,week_start,notes,snapshot,closed_by) values('meeting-test','26-27','2026-09-07','Acuerdos ficticios','{}','owner-test');
+    insert into broadcast_batches(id,author_id,body) values('batch-test','owner-test','Aviso ficticio');
+    insert into broadcast_recipients(batch_id,communication_id,producer_name) values('batch-test','comm-test','Productor ficticio');
     update app_lock set enabled=true,code_hash='fictional-code-hash';
     insert into announcements(id,author_user_id,author_name,body) values
       ('announcement-test','owner-test','Gerencia ficticia','Aviso ficticio');

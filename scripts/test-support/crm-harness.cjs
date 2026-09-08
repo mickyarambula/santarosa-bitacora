@@ -94,6 +94,8 @@ module.exports = async function makeHarness() {
   const crm = {
     ...load(path.join(root, "src/lib/crm.ts")),
     ...load(path.join(root, "src/lib/operations.ts")),
+    ...load(path.join(root, "src/lib/weekly.ts")),
+    ...load(path.join(root, "src/lib/broadcasts.ts")),
   };
   return {
     db,
@@ -105,7 +107,7 @@ module.exports = async function makeHarness() {
     async reset() {
       injectedFailure = "";
       await db.exec(
-        "truncate producers cascade; truncate producer_groups, profiles, revoked_users, announcements, crm_audit;",
+        "truncate broadcast_recipients, broadcast_batches, weekly_meetings; truncate producers cascade; truncate producer_groups, profiles, revoked_users, announcements, crm_audit;",
       );
       await db.query(
         "insert into profiles(user_id,display_name,role,status,access_admin) values ('manager','Gerencia prueba','gerente','activo',true),('agent_a','Agente A','comisionista','activo',false),('agent_b','Agente B','comisionista','activo',false)",

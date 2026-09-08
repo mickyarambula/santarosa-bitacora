@@ -32,6 +32,9 @@ export const BACKUP_TABLES = [
   "team_invitations",
   "producer_tasks",
   "producer_communications",
+  "weekly_meetings",
+  "broadcast_batches",
+  "broadcast_recipients",
   "_migrations",
 ] as const;
 export function backupTablesForMigrations(migrations: readonly string[]) {
@@ -40,7 +43,9 @@ export function backupTablesForMigrations(migrations: readonly string[]) {
       (t !== "crm_audit" || migrations.includes("0013_traceability.sql")) &&
       (t !== "team_invitations" || migrations.includes("0018_team_invitations.sql")) &&
       (t !== "producer_tasks" || migrations.includes("0020_shared_tasks.sql")) &&
-      (t !== "producer_communications" || migrations.includes("0021_communications.sql")),
+      (t !== "producer_communications" || migrations.includes("0021_communications.sql")) &&
+      (!["weekly_meetings", "broadcast_batches", "broadcast_recipients"].includes(t) ||
+        migrations.includes("0022_weekly_and_broadcasts.sql")),
   );
 }
 export type BackupTableName = (typeof BACKUP_TABLES)[number];

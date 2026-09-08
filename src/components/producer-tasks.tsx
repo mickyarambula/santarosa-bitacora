@@ -51,6 +51,7 @@ export function ProducerTasks({
   const p = detail.data?.producer,
     readOnly = !!p?.archivedAt || p?.stage === "cerrado";
   const refresh = () => {
+    void qc.invalidateQueries({ queryKey: ["weekly-report"] });
     void qc.invalidateQueries({ queryKey: ["producer-history"] });
     void qc.invalidateQueries({ queryKey: ["producer-tasks"] });
     void qc.invalidateQueries({ queryKey: ["work-inbox"] });

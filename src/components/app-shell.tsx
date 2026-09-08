@@ -29,6 +29,7 @@ const NAV = [
   { to: "/", label: "Hoy", icon: Home },
   { to: "/productores", label: "Mis productores", icon: Users },
   { to: "/citas", label: "Agenda", icon: CalendarDays },
+  { to: "/junta", label: "Junta semanal", icon: UsersRound },
 ] as const;
 
 const MORE = [
@@ -38,7 +39,7 @@ const MORE = [
   { to: "/recordatorios", label: "WhatsApp", icon: MessageCircle },
   { to: "/avisos", label: "Avisos", icon: Megaphone },
   { to: "/guia", label: "Cómo se usa", icon: CircleHelp },
-  { to: "/equipo", label: "Equipo", icon: UsersRound },
+  { to: "/equipo", label: "Administración", icon: UsersRound },
   { to: "/duplicados", label: "Duplicados", icon: Copy },
   { to: "/exportar", label: "Bajar Excel", icon: Download },
 ] as const;
@@ -68,22 +69,56 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
             <NavLink
               key={item.to}
               to={item.to}
-              label={item.to === "/productores" && canOperate ? "Productores" : item.label}
+              label={
+                item.to === "/productores" && canOperate
+                  ? "Productores"
+                  : item.to === "/junta" && !canOperate
+                    ? "Mi semana"
+                    : item.label
+              }
               icon={item.icon}
               pathname={pathname}
               dark
             />
           ))}
           <div className="my-3 h-px bg-primary-fg/10" />
-          {moreItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              label={item.label}
-              icon={item.icon}
-              pathname={pathname}
-              dark
-            />
+          {[
+            {
+              label: "Herramientas de cartera",
+              items: moreItems.filter((i) => !["/equipo", "/duplicados"].includes(i.to)),
+            },
+            {
+              label: canOperate ? "Administración" : "Equipo",
+              items: moreItems.filter((i) => ["/equipo", "/duplicados"].includes(i.to)),
+            },
+          ].map((group) => (
+            <details
+              key={group.label}
+              open={group.items.some((i) => pathname.startsWith(i.to))}
+              className="py-1"
+            >
+              <summary className="cursor-pointer rounded-lg px-3 py-3 text-sm font-medium text-sidebar-muted">
+                {group.label}
+              </summary>
+              <div className="mt-1 grid gap-1">
+                {group.items.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    label={
+                      item.to === "/equipo"
+                        ? canOperate
+                          ? "Equipo y accesos"
+                          : "Equipo"
+                        : item.label
+                    }
+                    icon={item.icon}
+                    pathname={pathname}
+                    dark
+                  />
+                ))}
+              </div>
+            </details>
           ))}
         </nav>
         <div className="mt-auto border-t border-primary-fg/10 p-4">
@@ -180,7 +215,8 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
         <main className="flex-1 bg-bg px-4 py-5 pb-28 md:px-8 md:py-8 md:pb-10">{children}</main>
         <Onboarding profile={profile} />
 
-        {pathname === "/" || pathname.startsWith("/productores/") ? null : (
+        {["/", "/junta", "/avisos"].includes(pathname) ||
+        pathname.startsWith("/productores/") ? null : (
           <Link
             to="/productores/nuevo"
             className="fixed right-4 z-30 grid size-14 place-items-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform duration-150 active:scale-[0.96] md:bottom-8 md:right-8"
@@ -235,7 +271,7 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           </div>
         ) : null}
 
-        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-4 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)] md:hidden">
+        <nav className="fixed inset-x-0 bottom-0 z-20 grid grid-cols-5 border-t border-border bg-bg pb-[env(safe-area-inset-bottom)] md:hidden">
           {NAV.map((item) => {
             const Icon = item.icon;
             const active = item.to === "/" ? pathname === "/" : pathname.startsWith(item.to);
@@ -249,7 +285,11 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
                 )}
               >
                 <Icon className="size-5" />
-                {canOperate && item.to === "/productores" ? "Productores" : item.label}
+                {canOperate && item.to === "/productores"
+                  ? "Productores"
+                  : item.to === "/junta" && !canOperate
+                    ? "Mi semana"
+                    : item.label}
               </Link>
             );
           })}

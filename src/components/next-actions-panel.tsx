@@ -19,8 +19,8 @@ const views = [
 ] as const;
 type View = (typeof views)[number][0];
 export function NextActionsPanel({ agent }: { agent: string | null }) {
-  const { canOperate } = useViewAs(),
-    [view, setView] = useState<View>("hoy"),
+  const { canOperate, isGerente, isOffice } = useViewAs(),
+    [view, setView] = useState<View>(isGerente ? "gerencia" : isOffice ? "papeleria" : "hoy"),
     [scope, setScope] = useState<"mine" | "team">(canOperate ? "team" : "mine"),
     [search, setSearch] = useState(""),
     [q, setQ] = useState(""),
@@ -32,7 +32,13 @@ export function NextActionsPanel({ agent }: { agent: string | null }) {
   });
   return (
     <section className="space-y-3 rounded-xl border border-border bg-surface p-4">
-      <h2 className="font-display text-xl">Mi trabajo y pendientes del equipo</h2>
+      <h2 className="font-display text-xl">
+        {isGerente
+          ? "Pendientes y decisiones del equipo"
+          : isOffice
+            ? "Atención de Oficina"
+            : "Mis pendientes"}
+      </h2>
       <p className="text-sm text-muted">
         Qué falta, quién lo atiende y para cuándo. Horarios de Sinaloa.
       </p>
