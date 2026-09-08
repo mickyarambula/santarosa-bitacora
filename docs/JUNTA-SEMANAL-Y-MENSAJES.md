@@ -1,6 +1,6 @@
 # Junta semanal y mensajes preparados
 
-Entrega en la rama `codex/junta-semanal-y-mensajes`. Este documento describe código preparado; no confirma que ya esté publicado en el enlace oficial.
+Reorganización en la rama `codex/junta-por-comisionista`. Este documento describe el funcionamiento preparado; la publicación se confirma por separado en el PR y en el enlace oficial. La versión inicial de junta y mensajes ya se publicó con el PR 9.
 
 ## Qué cambia
 
@@ -10,15 +10,16 @@ Entrega en la rama `codex/junta-semanal-y-mensajes`. Este documento describe có
 
 ## Cómo llevar una junta
 
-1. Abrir **Junta semanal**, elegir la semana y la cartera. Tocar una cifra para consultar los registros que la respaldan.
-2. Revisar **Lo trabajado**: contactos, altas, movimientos de papelería, cambios de etapa y citas marcadas cumplidas. Cada entrada muestra productor, autor y fecha.
-3. Revisar **Compromisos**: tareas atendidas durante la semana, canceladas durante la semana y tareas que siguen abiertas al corte. Filtrar atendidas, vencidas o próximas. Las tareas vinculadas a citas conservan su relación; no son visitas adicionales.
-4. Revisar **Trabas y próximos pasos**: falta de tarea, bloqueo declarado y evaluación pendiente. Los compromisos nuevos se guardan desde esta pantalla usando las tareas del expediente, con responsable y fecha; no hay doble captura.
-5. Gerencia escribe los acuerdos generales y confirma **Cerrar junta**. Se guarda una copia del informe completo del equipo, con las tareas y acuerdos al cierre. Una junta por ciclo y semana; el resumen cerrado no se sobrescribe. Seleccionar esa semana permite consultar el resumen o la situación actual. Oficina puede consultarlo; Comisionista consulta únicamente su informe en vivo, sin acceder al resumen general.
+1. Abrir **Junta semanal** y elegir la semana. La junta usa sus propios filtros y oculta el selector general de cartera para evitar selecciones contradictorias. Los filtros aparecen antes de la lista: **Comisionistas**, **Clientes de la empresa**, **Pendientes de asignar** o **Todo el equipo**. Se puede buscar por nombre; en cuentas coincidentes también por el correo que las distingue. Los filtros **Con actividad**, **Sin actividad registrada** y **Con pendientes vencidos** se combinan con la búsqueda. «Todos» conserva visibles las carteras sin movimientos.
+2. Pulsar **Revisar semana →** junto al nombre. El resumen general se oculta y aparece únicamente la cartera elegida. **Siguiente cartera →** recorre la lista filtrada; **Volver al equipo** recupera los filtros. Las cuentas no se fusionan ni se cambian sus roles.
+3. En **Qué hizo**, revisar registros y tocar **Ver movimiento →**. El expediente muestra el movimiento exacto, su autor y fecha, y un acceso a su sección. Para papelería y citas se abre y resalta el documento o cita concretos. Para contactos se abre su seguimiento; para altas y etapas, la bitácora. La evidencia de esa fecha se distingue del estado actual de la ficha. **Volver a la revisión semanal** recupera semana, cartera, filtros, pestaña y página; también se conservan al recargar o usar Atrás.
+4. En **Qué tiene pendiente**, revisar tareas atendidas durante la semana y pendientes al corte; filtrar atendidas, vencidas o próximas. En **Qué necesita apoyo**, revisar bloqueos y fichas sin siguiente paso. En **Qué acordamos**, guardar tareas del expediente con responsable y fecha, sin doble captura.
+5. Volver al equipo y desplegar **Cerrar junta y conservar resumen**. Gerencia escribe los acuerdos generales y confirma el cierre. Se guarda una copia del informe completo del equipo; una por ciclo y semana, sin sobrescribirla. Puede alternar entre resumen guardado y situación actual. Oficina consulta el cierre; Comisionista solo ve su informe en vivo. Los resúmenes antiguos sin clasificación por rol se abren como **Todo el equipo**, conservando los datos originales.
 
 ### Qué significan las cifras
 
-- **Productores atendidos:** productores distintos con contactos registrados (incluidos intentos) o citas marcadas cumplidas en la semana. Abrir WhatsApp, notas internas, borradores, fallos y cancelaciones no cuentan.
+- **Productores con actividad:** productores distintos con alguno de los movimientos incluidos en el informe. Varias acciones sobre un productor lo cuentan una sola vez. El filtro de detalle **Productores atendidos · contactos y citas cumplidas** restringe a contactos registrados (incluidos intentos) y citas cumplidas. Abrir WhatsApp, notas internas, borradores, fallos y cancelaciones no cuentan como contacto.
+- **Con actividad / Sin actividad registrada:** considera movimientos y tareas atendidas. Una cartera sin actividad puede tener pendientes vencidos; permanece disponible para rendir cuentas.
 - **Movimientos de la semana:** registros de contacto, altas, cambios de etapa y movimientos documentales, además de citas marcadas cumplidas. No es una calificación de desempeño ni un conteo de ventas.
 - **Tareas atendidas:** tareas con resultado y fecha de conclusión dentro de la semana. No implica que todas se hayan concluido a tiempo.
 - **Vencidas al corte:** tareas abiertas cuya fecha límite ya pasó al consultar o cerrar la junta. En semanas anteriores, no se reconstruye automáticamente el estado que tenían al domingo: para ello se conserva el resumen cerrado.
@@ -43,8 +44,8 @@ Las listas del flujo anterior no tenían destinatarios ni progreso persistidos: 
 
 ## Ensayo y publicación
 
-Migración aditiva **0022_weekly_and_broadcasts.sql**: `weekly_meetings`, `broadcast_batches`, `broadcast_recipients` e índices para consultas semanales. No reclasifica productores ni modifica roles. El respaldo completo incorpora las tres tablas y mantiene compatibilidad con esquemas anteriores.
+Esta reorganización no necesita una migración ni cambios de datos. La entrega anterior ya aplicó **0022_weekly_and_broadcasts.sql**: `weekly_meetings`, `broadcast_batches`, `broadcast_recipients` e índices para consultas semanales. No reclasifica productores ni modifica roles. El respaldo completo incorpora las tres tablas y mantiene compatibilidad con esquemas anteriores.
 
 Pruebas: `npm run check`, `npm run lint`, compilación y `scripts/verify-weekly-ui.mjs` con cuentas ficticias en PGLite local. Este último usa las sesiones creadas por `scripts/verify-office-ui.mjs` en `/private/tmp/sr-office-test-auth.json`; el servidor debe usar `BETTER_AUTH_URL=http://localhost:8081` y un secreto exclusivamente de prueba. Los navegadores bloquean destinos externos. Eliminar las sesiones de ensayo al detener esa base.
 
-Antes de producción: revisar el PR, autorizar integración y publicación, obtener respaldo cifrado actual, aplicar la migración y verificar que se conserva la información previa. Una reversión de código no debe borrar tablas nuevas ni sobrescribir trabajo posterior. Mantener el alojamiento actual de Santa Rosa.
+Antes de producción: revisar el PR, autorizar integración y publicación, obtener respaldo cifrado actual y verificar que se conserva la información previa. Una reversión de código no debe borrar tablas nuevas ni sobrescribir trabajo posterior. Mantener el alojamiento actual de Santa Rosa.

@@ -74,7 +74,7 @@ function DocRow({
     (!canValidate && ["validado", "no_aplica", "entregado"].includes(doc.status)) ||
     (!canExcept && doc.status === "no_aplica");
   return (
-    <li>
+    <li id={`documento-${doc.id}`} className="scroll-mt-24">
       <details className="rounded-lg border border-border bg-surface px-3">
         <summary className="min-h-14 cursor-pointer py-3">
           <span className="font-medium">{doc.label}</span>

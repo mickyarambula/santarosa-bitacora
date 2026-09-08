@@ -114,7 +114,7 @@ export function ContactLog({
       ) : null}
 
       {touches.length ? (
-        <details>
+        <details id="contactos">
           <summary className="cursor-pointer text-sm text-muted">
             Últimos contactos ({touches.length})
           </summary>
