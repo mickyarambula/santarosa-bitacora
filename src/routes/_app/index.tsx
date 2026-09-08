@@ -1,7 +1,7 @@
 import { NextActionsPanel } from "@/components/next-actions-panel";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertCircle, CalendarClock, Copy, FolderOpen, Phone, Plus } from "lucide-react";
+import { Copy, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { EmptyState } from "@/components/empty-state";
 import { KpiStrip } from "@/components/kpi-strip";
@@ -101,6 +101,38 @@ function Hoy() {
         </Button>
       </header>
 
+      <section className="grid gap-3 sm:grid-cols-2">
+        {d.profile.role === "gerente" ? (
+          <Link to="/junta" className="rounded-xl border border-primary/30 bg-primary/5 p-5">
+            <h2 className="font-display text-xl">Preparar junta semanal</h2>
+            <p className="mt-1 text-sm">Avances del equipo, compromisos y asuntos por resolver.</p>
+          </Link>
+        ) : d.profile.role === "oficina" ? (
+          <Link to="/productores/nuevo" className="rounded-xl border p-5">
+            <h2 className="font-display text-xl">Recepción de productores</h2>
+            <p className="mt-1 text-sm">
+              Buscar antes de capturar, asignar cartera y coordinar atención.
+            </p>
+          </Link>
+        ) : (
+          <Link to="/productores" className="rounded-xl border p-5">
+            <h2 className="font-display text-xl">Registrar seguimiento</h2>
+            <p className="mt-1 text-sm">
+              Elige al productor y registra qué hiciste, qué pasó y qué sigue.
+            </p>
+          </Link>
+        )}
+        <a href="#trabajo" className="rounded-xl border p-5">
+          <h2 className="font-display text-xl">
+            {d.profile.role === "gerente"
+              ? "Pendientes y decisiones"
+              : d.profile.role === "oficina"
+                ? "Atención de Oficina"
+                : "Mis pendientes de hoy"}
+          </h2>
+          <p className="mt-1 text-sm">Revisa tareas vencidas, citas y el siguiente paso.</p>
+        </a>
+      </section>
       {(news.data?.items ?? [])
         .filter((a) => a.kind === "equipo")
         .slice(0, 3)
@@ -187,8 +219,10 @@ function Hoy() {
         />
       ) : (
         <>
-          <NextActionsPanel key={agent ?? "all"} agent={agent} />
-          <section className="grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+          <div id="trabajo" className="scroll-mt-24">
+            <NextActionsPanel key={agent ?? "all"} agent={agent} />
+          </div>
+          <section className="grid gap-4">
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle>Hoy en el campo</CardTitle>
@@ -243,48 +277,9 @@ function Hoy() {
                 )}
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader className="flex-row items-center justify-between">
-                <CardTitle>Qué urge</CardTitle>
-                <Link to="/recordatorios" className="text-sm text-primary hover:underline">
-                  WhatsApp
-                </Link>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                {d.attention.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-muted">Nada atorado por ahora.</p>
-                ) : (
-                  d.attention.slice(0, 6).map((a) => (
-                    <Link
-                      key={a.id}
-                      to="/productores/$id"
-                      params={{ id: a.producerId }}
-                      className="flex items-start gap-3 rounded-lg px-2 py-2 hover:bg-secondary"
-                    >
-                      <span className="mt-0.5 text-clay">
-                        {a.kind === "papeleria" ? (
-                          <FolderOpen className="size-4" />
-                        ) : a.kind === "cita_hoy" ? (
-                          <CalendarClock className="size-4" />
-                        ) : a.kind === "sin_contacto" ? (
-                          <Phone className="size-4" />
-                        ) : (
-                          <AlertCircle className="size-4" />
-                        )}
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate font-medium">{a.title}</span>
-                        <span className="block text-sm text-muted">{a.detail}</span>
-                      </span>
-                    </Link>
-                  ))
-                )}
-              </CardContent>
-            </Card>
           </section>
 
-          <details open={isGerente} className="rounded-xl border p-4">
+          <details className="rounded-xl border p-4">
             <summary className="cursor-pointer py-2 font-medium">
               Resumen de la cartera activa
             </summary>{" "}
@@ -295,88 +290,96 @@ function Hoy() {
               financing={d.kpis.financing}
             />
           </details>
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-xl font-medium">Por etapa</h2>
-              <Link to="/embudo" className="text-sm text-primary hover:underline">
-                Ver embudo
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              {d.stages
-                .filter((s) => s.count > 0)
-                .map((s) => (
-                  <Link
-                    key={s.stage}
-                    to="/productores"
-                    search={{ etapa: s.stage }}
-                    className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]"
-                  >
-                    <StageChip stage={s.stage} />
-                    <p className="mt-3 font-display text-2xl tabular">{s.count}</p>
-                    <p className="text-xs text-muted">{qty(s.hectares, 0)} ha</p>
-                  </Link>
-                ))}
-            </div>
-          </section>
-
-          {d.profile.role === "gerente" && !agent && d.agents.length > 0 ? (
+          <details className="space-y-4 rounded-xl border p-4">
+            <summary className="cursor-pointer font-medium">
+              Explorar cartera, etapas y movimientos recientes
+            </summary>
             <section>
               <div className="mb-3 flex items-center justify-between">
-                <h2 className="font-display text-xl font-medium">Por cartera</h2>
-                <Link to="/equipo" className="text-sm text-primary hover:underline">
-                  Ver desglose
+                <h2 className="font-display text-xl font-medium">Por etapa</h2>
+                <Link to="/embudo" className="text-sm text-primary hover:underline">
+                  Ver embudo
                 </Link>
               </div>
-              <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
-                <table className="w-full text-sm">
-                  <thead className="text-left text-xs uppercase tracking-wider text-subtle">
-                    <tr className="border-b border-border">
-                      <th className="px-4 py-3 font-medium">Nombre</th>
-                      <th className="px-4 py-3 font-medium">Prod.</th>
-                      <th className="px-4 py-3 font-medium">Ha</th>
-                      <th className="px-4 py-3 font-medium">Ton</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {d.agents.map((a) => (
-                      <tr key={a.userId ?? a.name} className="border-b border-border last:border-0">
-                        <td className="px-4 py-3">
-                          <button
-                            type="button"
-                            className="font-medium hover:underline"
-                            onClick={() => setAgent(a.userId ? "uid:" + a.userId : a.name)}
-                          >
-                            {a.name}
-                          </button>
-                        </td>
-                        <td className="px-4 py-3 tabular">{a.count}</td>
-                        <td className="px-4 py-3 tabular">{qty(a.hectares, 0)}</td>
-                        <td className="px-4 py-3 tabular">{qty(a.volume, 0)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                {d.stages
+                  .filter((s) => s.count > 0)
+                  .map((s) => (
+                    <Link
+                      key={s.stage}
+                      to="/productores"
+                      search={{ etapa: s.stage }}
+                      className="rounded-xl bg-surface p-4 shadow-[var(--shadow-border)]"
+                    >
+                      <StageChip stage={s.stage} />
+                      <p className="mt-3 font-display text-2xl tabular">{s.count}</p>
+                      <p className="text-xs text-muted">{qty(s.hectares, 0)} ha</p>
+                    </Link>
+                  ))}
               </div>
-              <p className="mt-2 text-xs text-muted">
-                Toca un nombre para consultar su cartera con tus permisos habituales.
-              </p>
             </section>
-          ) : null}
 
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="font-display text-xl font-medium">Recién movidos</h2>
-              <Link to="/productores" className="text-sm text-primary hover:underline">
-                Todos
-              </Link>
-            </div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {d.recent.map((p) => (
-                <ProducerCard key={p.id} producer={p} />
-              ))}
-            </div>
-          </section>
+            {d.profile.role === "gerente" && !agent && d.agents.length > 0 ? (
+              <section>
+                <div className="mb-3 flex items-center justify-between">
+                  <h2 className="font-display text-xl font-medium">Por cartera</h2>
+                  <Link to="/equipo" className="text-sm text-primary hover:underline">
+                    Ver desglose
+                  </Link>
+                </div>
+                <div className="overflow-hidden rounded-xl bg-surface shadow-[var(--shadow-border)]">
+                  <table className="w-full text-sm">
+                    <thead className="text-left text-xs uppercase tracking-wider text-subtle">
+                      <tr className="border-b border-border">
+                        <th className="px-4 py-3 font-medium">Nombre</th>
+                        <th className="px-4 py-3 font-medium">Prod.</th>
+                        <th className="px-4 py-3 font-medium">Ha</th>
+                        <th className="px-4 py-3 font-medium">Ton</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {d.agents.map((a) => (
+                        <tr
+                          key={a.userId ?? a.name}
+                          className="border-b border-border last:border-0"
+                        >
+                          <td className="px-4 py-3">
+                            <button
+                              type="button"
+                              className="font-medium hover:underline"
+                              onClick={() => setAgent(a.userId ? "uid:" + a.userId : a.name)}
+                            >
+                              {a.name}
+                            </button>
+                          </td>
+                          <td className="px-4 py-3 tabular">{a.count}</td>
+                          <td className="px-4 py-3 tabular">{qty(a.hectares, 0)}</td>
+                          <td className="px-4 py-3 tabular">{qty(a.volume, 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p className="mt-2 text-xs text-muted">
+                  Toca un nombre para consultar su cartera con tus permisos habituales.
+                </p>
+              </section>
+            ) : null}
+
+            <section>
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="font-display text-xl font-medium">Recién movidos</h2>
+                <Link to="/productores" className="text-sm text-primary hover:underline">
+                  Todos
+                </Link>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {d.recent.map((p) => (
+                  <ProducerCard key={p.id} producer={p} />
+                ))}
+              </div>
+            </section>
+          </details>
         </>
       )}
     </div>

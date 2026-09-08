@@ -49,6 +49,8 @@ export function ContactLog({
       setSummary("");
       void qc.invalidateQueries({ queryKey: ["producer", producerId] });
       void qc.invalidateQueries({ queryKey: ["dashboard"] });
+      void qc.invalidateQueries({ queryKey: ["weekly-report"] });
+      void qc.invalidateQueries({ queryKey: ["producer-history"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -104,7 +106,7 @@ export function ContactLog({
           }}
         >
           <Plus className="size-4" />
-          Registrar resultado
+          Registrar seguimiento
         </Button>
       </div>
       {!tel && !wa && !mail ? (
@@ -139,7 +141,7 @@ export function ContactLog({
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {saved ? "¿Qué sigue con este productor?" : "Registrar resultado"}
+              {saved ? "3. ¿Qué sigue y para cuándo?" : "Registrar seguimiento"}
             </DialogTitle>
             <DialogDescription>
               Abrir el teléfono o WhatsApp no registra un contacto. Guarda únicamente la gestión
@@ -165,7 +167,7 @@ export function ContactLog({
               }}
             >
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium">Canal</span>
+                <span className="text-sm font-medium">1. ¿Qué hiciste?</span>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                   {CHANNELS.map((c) => (
                     <button
@@ -185,7 +187,7 @@ export function ContactLog({
                 </div>
               </label>
               <label className="grid gap-1.5">
-                <span className="text-sm font-medium">¿Cómo quedó?</span>
+                <span className="text-sm font-medium">2. ¿Qué pasó?</span>
                 <NativeSelect
                   aria-label="¿Cómo quedó?"
                   required

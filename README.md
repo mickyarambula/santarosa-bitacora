@@ -34,6 +34,10 @@ El puerto predeterminado es 8080. Sin `DATABASE_URL`, el desarrollo usa PGLite e
 
 `npm run check` ejecuta revisión de tipos y pruebas; `npm run lint` revisa código y `npm run build` verifica y compila. `scripts/verify-office-ui.mjs` prueba cuentas ficticias en un servidor aislado en `localhost:8081`, bloqueando destinos externos. Sus sesiones reutilizables se guardan únicamente en `/private/tmp/sr-office-test-auth.json`; retirar ese archivo al reiniciar la base ficticia.
 
+## Junta semanal y mensajes
+
+La guía [Junta semanal y mensajes](docs/JUNTA-SEMANAL-Y-MENSAJES.md) describe la revisión por cartera, el cierre de acuerdos y las listas de mensajes que pueden retomarse. Su estado de publicación se confirma en la entrega del PR correspondiente.
+
 ## Datos y seguridad
 
 No subir `.env`, secretos, respaldos sin cifrar, sesiones, capturas con datos reales, teléfonos o cuentas de productores. Respetar las reglas de coincidencias, teléfonos compartidos solo dentro del grupo y papelería individual. No reclasificar «Directo» como cartera de empresa. Los respaldos completos deben cubrir todas las tablas del esquema aplicado.
