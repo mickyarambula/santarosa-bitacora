@@ -1,3 +1,4 @@
+import { accountMatches } from "./account-identity";
 import { writeAudit } from "./crm-audit";
 import { previewConsolidation, consolidateAccounts } from "./account-consolidation";
 import { createServerFn } from "@tanstack/react-start";
@@ -115,6 +116,7 @@ type ProfileRow = {
   role: string;
   status?: string;
   merged_into_user_id?: string | null;
+  duplicate_review?: boolean;
   email?: string | null;
   phone: string | null;
   created_at: string | Date;
@@ -131,6 +133,7 @@ function mapProfile(row: ProfileRow): Profile {
     userId: row.user_id,
     displayName: row.display_name,
     mergedIntoUserId: row.merged_into_user_id ?? null,
+    duplicateReview: Boolean(row.duplicate_review),
     role: (row.role === "gerente" ? "gerente" : "comisionista") as Role,
     status: row.status === "bloqueado" ? "bloqueado" : "activo",
     phone: row.phone,
@@ -283,7 +286,7 @@ async function ensureProfile(
   accessCode?: string | null,
 ): Promise<Profile> {
   const existing = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
     from profiles where user_id = ${userId} limit 1
   `;
   const revoked = await sql<{ user_id: string }>`
@@ -309,12 +312,19 @@ async function ensureProfile(
     if (lock.enabled && !accessCodeOk(accessCode, lock.codeHash)) status = "bloqueado";
   }
 
+  const authName = (
+    await sql<{ name: string }>`select name from "user" where id=${userId}`
+  )[0]?.name?.trim();
+  const checkedName = authName || name;
+  const possibleDuplicates = await accountMatches(sql, userId, checkedName);
+  const duplicateReview = possibleDuplicates.length > 0;
+  if (duplicateReview) status = "bloqueado";
   await sql`
-    insert into profiles (user_id, display_name, role, status)
-    values (${userId}, ${name}, ${role}, ${status})
+    insert into profiles (user_id, display_name, role, status,duplicate_review)
+    values (${userId}, ${checkedName}, ${role}, ${status},${duplicateReview})
   `;
   const created = await sql<ProfileRow>`
-    select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+    select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
     from profiles where user_id = ${userId} limit 1
   `;
   return mapProfile(created[0]!);
@@ -727,7 +737,7 @@ export const setLock = createServerFn({ method: "POST" })
 
 export const setMemberStatus = createServerFn({ method: "POST" })
   .middleware([authMiddleware])
-  .validator((d: { userId: string; status: AccountStatus }) => d)
+  .validator((d: { userId: string; status: AccountStatus; identityReviewReason?: string }) => d)
   .handler(async ({ context, data }) => {
     return (await getSql()).transaction(async (sql) => {
       const me = await requireProfile(sql, context.userId);
@@ -736,7 +746,7 @@ export const setMemberStatus = createServerFn({ method: "POST" })
         throw new Error("Estado de cuenta no válido.");
       if (data.userId === me.userId) throw new Error("No puedes inhabilitarte a ti mismo.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -752,7 +762,27 @@ export const setMemberStatus = createServerFn({ method: "POST" })
       }
       if (rows[0]?.merged_into_user_id)
         throw new Error("Esta cuenta fue unificada; usa la cuenta de destino.");
-      await sql`update profiles set status = ${data.status} where user_id = ${target.userId}`;
+      const identityReason = data.identityReviewReason?.trim() ?? "";
+      if (data.status === "activo" && target.duplicateReview) {
+        if (identityReason.length < 10 || identityReason.length > 1000)
+          throw new Error(
+            "Revisa la coincidencia y explica por qué son personas distintas antes de habilitar (10 a 1,000 caracteres).",
+          );
+        const matches = await accountMatches(sql, target.userId, target.displayName, target.phone);
+        await writeAudit(
+          sql,
+          me,
+          "cuenta",
+          target.userId,
+          "autorizar_homonimo",
+          {
+            name: target.displayName,
+            matches: matches.map((m) => ({ userId: m.user_id, name: m.display_name })),
+          },
+          { reason: identityReason },
+        );
+      }
+      await sql`update profiles set status = ${data.status},duplicate_review=case when ${data.status}='activo' then false else duplicate_review end where user_id = ${target.userId}`;
       if (data.status === "bloqueado") {
         await sql`
         insert into revoked_users (user_id, revoked_by, reason)
@@ -776,7 +806,7 @@ export const deleteMember = createServerFn({ method: "POST" })
       if (me.role !== "gerente") throw new Error("Solo gerencia puede eliminar cuentas.");
       if (data.userId === me.userId) throw new Error("No puedes borrar tu propia cuenta.");
       const rows = await sql<ProfileRow>`
-      select user_id, display_name, role, status, phone, created_at, merged_into_user_id
+      select user_id, display_name, role, status, phone, created_at, merged_into_user_id, duplicate_review
       from profiles where user_id = ${data.userId} limit 1
     `;
       const target = rows[0] ? mapProfile(rows[0]) : null;
@@ -828,6 +858,20 @@ export const updateMyProfile = createServerFn({ method: "POST" })
       const profile = await requireProfile(sql, context.userId);
       const displayName = data.displayName.trim();
       if (!displayName) throw new Error("Escribe cómo te dicen.");
+      const phone = data.phone?.trim() || null;
+      if (displayName !== profile.displayName || phone !== profile.phone) {
+        const matches = await accountMatches(sql, profile.userId, displayName, phone);
+        const oldMatches = await accountMatches(
+          sql,
+          profile.userId,
+          profile.displayName,
+          profile.phone,
+        );
+        if (matches.some((m) => !oldMatches.some((old) => old.user_id === m.user_id)))
+          throw new Error(
+            "Ese nombre o teléfono coincide con otra cuenta. Pide a gerencia revisar el acceso antes de crear una duplicidad.",
+          );
+      }
       await sql`
       update profiles
       set display_name = ${displayName},
